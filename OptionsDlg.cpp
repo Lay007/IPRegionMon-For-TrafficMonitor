@@ -1,18 +1,19 @@
 #include "pch.h"
 #include "OptionsDlg.h"
 #include <thread>
+#include <uxtheme.h>
 
 // ====================================================================
 // CTabProxyApiDlg —— Tab 0: 常规 / 网络 & 代理
 // ====================================================================
-IMPLEMENT_DYNAMIC(CTabProxyApiDlg, CDialog)
+IMPLEMENT_DYNAMIC(CTabProxyApiDlg, CModernSubDlg)
 
 CTabProxyApiDlg::CTabProxyApiDlg(CWnd* pParent)
-    : CDialog(IDD_TAB_PROXY_API, pParent) {}
+    : CModernSubDlg(IDD_TAB_PROXY_API, pParent) {}
 
 void CTabProxyApiDlg::DoDataExchange(CDataExchange* pDX)
 {
-    CDialog::DoDataExchange(pDX);
+    CModernSubDlg::DoDataExchange(pDX);
     DDX_Control(pDX, IDC_DISPLAY_FORMAT_COMBO,   m_cmbDisplayFormat);
     DDX_Control(pDX, IDC_USE_PROXY_CHECK,        m_chkUseProxy);
     DDX_Control(pDX, IDC_PROXY_EDIT,             m_edtProxy);
@@ -25,7 +26,7 @@ void CTabProxyApiDlg::DoDataExchange(CDataExchange* pDX)
     DDX_Control(pDX, IDC_TEST_PROXY_STATUS,      m_stcTestProxyStatus);
 }
 
-BEGIN_MESSAGE_MAP(CTabProxyApiDlg, CDialog)
+BEGIN_MESSAGE_MAP(CTabProxyApiDlg, CModernSubDlg)
     ON_BN_CLICKED(IDC_USE_PROXY_CHECK,    &CTabProxyApiDlg::OnBnClickedUseProxy)
     ON_BN_CLICKED(IDC_REFRESH_NOW_BUTTON, &CTabProxyApiDlg::OnBnClickedRefreshNow)
     ON_BN_CLICKED(IDC_TEST_PROXY_BUTTON,  &CTabProxyApiDlg::OnBnClickedTestProxy)
@@ -34,7 +35,12 @@ END_MESSAGE_MAP()
 
 BOOL CTabProxyApiDlg::OnInitDialog()
 {
-    CDialog::OnInitDialog();
+    CModernSubDlg::OnInitDialog();
+
+    // 注册三大现代圆角卡片 (DLU 坐标)
+    AddCard(0, 0, 426, 54, L"展示偏好与更新");
+    AddCard(0, 60, 426, 120, L"代理出口 (用于境外出口及海外测速)");
+    AddCard(0, 126, 426, 212, L"公网 IP 探测接口 API");
 
     // 初始化显示格式下拉框
     m_cmbDisplayFormat.ResetContent();
@@ -99,60 +105,83 @@ void CTabProxyApiDlg::OnBnClickedTestProxy()
         std::wstring msg;
         double ms = -1.0;
         bool ok = g_data.TestProxyConnectivity(proxy_str, msg, ms);
+
         if (::IsWindow(hWnd))
         {
-            ::SetDlgItemTextW(hWnd, IDC_TEST_PROXY_STATUS, msg.c_str());
-            ::EnableWindow(::GetDlgItem(hWnd, IDC_TEST_PROXY_BUTTON), TRUE);
+            wchar_t res[256];
+            if (ok)
+            {
+                swprintf_s(res, L"✓ 代理连接正常！握手耗时: %.0f ms", ms);
+            }
+            else
+            {
+                swprintf_s(res, L"✗ 代理连接失败: %s", msg.c_str());
+            }
+
+            ::PostMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDC_TEST_PROXY_BUTTON, 999), 0);
+            ::SetDlgItemTextW(hWnd, IDC_TEST_PROXY_STATUS, res);
         }
     }).detach();
 }
 
 void CTabProxyApiDlg::OnTimer(UINT_PTR nIDEvent)
 {
-    if (nIDEvent == 1 && !g_data.IsUpdating())
+    if (nIDEvent == 1)
     {
-        KillTimer(1);
-        m_btnRefresh.EnableWindow(TRUE);
-        m_stcStatus.SetWindowTextW(L"刷新完成！");
+        if (!g_data.IsUpdating())
+        {
+            KillTimer(1);
+            m_btnRefresh.EnableWindow(TRUE);
+            m_stcStatus.SetWindowTextW(L"✓ 探测已完成并应用到任务栏。");
+        }
     }
-    CDialog::OnTimer(nIDEvent);
+    CModernSubDlg::OnTimer(nIDEvent);
 }
 
 void CTabProxyApiDlg::GetData(SettingData& out) const
 {
     out.display_format = m_cmbDisplayFormat.GetCurSel();
-    if (out.display_format < 0) out.display_format = DF_REGION_AND_IP;
-    out.show_ip = (out.display_format == DF_REGION_AND_IP || out.display_format == DF_IP_ONLY || out.display_format == DF_FULL);
-
     out.use_proxy = (m_chkUseProxy.GetCheck() == BST_CHECKED);
 
     CString s;
-    m_edtProxy.GetWindowTextW(s);       out.proxy_address = s.GetString();
-    m_edtDomesticApi.GetWindowTextW(s); out.api_domestic_url = s.GetString();
-    m_edtForeignApi.GetWindowTextW(s);  out.api_foreign_url  = s.GetString();
+    m_edtProxy.GetWindowTextW(s);
+    out.proxy_address = s.GetString();
+
+    m_edtDomesticApi.GetWindowTextW(s);
+    out.api_domestic_url = s.GetString();
+
+    m_edtForeignApi.GetWindowTextW(s);
+    out.api_foreign_url = s.GetString();
 
     m_edtInterval.GetWindowTextW(s);
-    int secs = _wtoi(s.GetString());
-    out.refresh_interval_sec = (secs >= 5) ? secs : 5;
+    int interval = _wtoi(s.GetString());
+    if (interval < 5)   interval = 5;
+    if (interval > 3600) interval = 3600;
+    out.refresh_interval_sec = interval;
 }
 
 // ====================================================================
-// CTabLatencyDlg —— Tab 1: 延迟目标动态列表
+// CTabLatencyDlg —— Tab 1: 延迟目标设置
 // ====================================================================
-IMPLEMENT_DYNAMIC(CTabLatencyDlg, CDialog)
+IMPLEMENT_DYNAMIC(CTabLatencyDlg, CModernSubDlg)
 
 CTabLatencyDlg::CTabLatencyDlg(CWnd* pParent)
-    : CDialog(IDD_TAB_LATENCY_LIST, pParent) {}
+    : CModernSubDlg(IDD_TAB_LATENCY_LIST, pParent) {}
 
 void CTabLatencyDlg::DoDataExchange(CDataExchange* pDX)
 {
-    CDialog::DoDataExchange(pDX);
-    DDX_Control(pDX, IDC_LATENCY_LIST,  m_listCtrl);
-    DDX_Control(pDX, IDC_LAT_NAME_EDIT, m_edtName);
-    DDX_Control(pDX, IDC_LAT_URL_EDIT,  m_edtUrl);
+    CModernSubDlg::DoDataExchange(pDX);
+    DDX_Control(pDX, IDC_LATENCY_LIST,       m_listCtrl);
+    DDX_Control(pDX, IDC_LAT_NAME_EDIT,      m_edtName);
+    DDX_Control(pDX, IDC_LAT_URL_EDIT,       m_edtUrl);
+    DDX_Control(pDX, IDC_LAT_ADD_BUTTON,     m_btnAdd);
+    DDX_Control(pDX, IDC_LAT_DEL_BUTTON,     m_btnDel);
+    DDX_Control(pDX, IDC_LAT_UP_BUTTON,      m_btnUp);
+    DDX_Control(pDX, IDC_LAT_DOWN_BUTTON,    m_btnDown);
+    DDX_Control(pDX, IDC_LAT_TEST_BUTTON,    m_btnTest);
 }
 
-BEGIN_MESSAGE_MAP(CTabLatencyDlg, CDialog)
+BEGIN_MESSAGE_MAP(CTabLatencyDlg, CModernSubDlg)
     ON_BN_CLICKED(IDC_LAT_ADD_BUTTON,  &CTabLatencyDlg::OnBnClickedAdd)
     ON_BN_CLICKED(IDC_LAT_DEL_BUTTON,  &CTabLatencyDlg::OnBnClickedDel)
     ON_BN_CLICKED(IDC_LAT_UP_BUTTON,   &CTabLatencyDlg::OnBnClickedUp)
@@ -164,13 +193,23 @@ END_MESSAGE_MAP()
 
 BOOL CTabLatencyDlg::OnInitDialog()
 {
-    CDialog::OnInitDialog();
+    CModernSubDlg::OnInitDialog();
 
-    m_listCtrl.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
-    m_listCtrl.InsertColumn(0, L"#",     LVCFMT_LEFT, 35);
-    m_listCtrl.InsertColumn(1, L"名称",  LVCFMT_LEFT, 85);
-    m_listCtrl.InsertColumn(2, L"测试地址 (URL / Host)", LVCFMT_LEFT, 185);
-    m_listCtrl.InsertColumn(3, L"最新延迟 (直 / 代)",    LVCFMT_LEFT, 110);
+    // 注册卡片 (DLU 坐标)
+    AddCard(0, 0, 426, 142, L"测速节点与连通性目标");
+    AddCard(0, 148, 426, 212, L"目标配置与快速测试");
+
+    // 突出主操作按钮
+    m_btnAdd.SetAccent(true);
+
+    // 启用现代 Explorer 风格列表
+    SetWindowTheme(m_listCtrl.m_hWnd, L"Explorer", NULL);
+    m_listCtrl.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+
+    m_listCtrl.InsertColumn(0, L"名称",     LVCFMT_LEFT, 75);
+    m_listCtrl.InsertColumn(1, L"地址/URL", LVCFMT_LEFT, 235);
+    m_listCtrl.InsertColumn(2, L"直连延迟", LVCFMT_RIGHT, 85);
+    m_listCtrl.InsertColumn(3, L"代理延迟", LVCFMT_RIGHT, 85);
 
     m_targets = g_data.m_setting_data.latency_targets;
     RefreshList();
@@ -181,32 +220,31 @@ BOOL CTabLatencyDlg::OnInitDialog()
 void CTabLatencyDlg::RefreshList()
 {
     m_listCtrl.DeleteAllItems();
-
-    const auto& results = g_data.m_latency_results;
-
     for (size_t i = 0; i < m_targets.size(); ++i)
     {
-        wchar_t numStr[16]{};
-        swprintf_s(numStr, L"%d", (int)i + 1);
-        int idx = m_listCtrl.InsertItem((int)i, numStr);
-        m_listCtrl.SetItemText(idx, 1, m_targets[i].name.c_str());
-        m_listCtrl.SetItemText(idx, 2, m_targets[i].url.c_str());
+        const auto& t = m_targets[i];
+        int idx = m_listCtrl.InsertItem((int)i, t.name.c_str());
+        m_listCtrl.SetItemText(idx, 1, t.url.c_str());
 
-        // 匹配延迟结果
-        std::wstring lat_str = L"-";
-        for (const auto& r : results)
+        // 读当前的实时测速结果
+        double dMs = -1.0, pMs = -1.0;
+        for (const auto& r : g_data.m_latency_results)
         {
-            if (r.url == m_targets[i].url || r.name == m_targets[i].name)
+            if (r.url == t.url || r.name == t.name)
             {
-                wchar_t b[64]{};
-                std::wstring d = (r.direct_ms >= 0) ? std::to_wstring((int)(r.direct_ms + 0.5)) + L"ms" : L"-";
-                std::wstring p = (r.proxy_ms  >= 0) ? std::to_wstring((int)(r.proxy_ms  + 0.5)) + L"ms" : L"-";
-                swprintf_s(b, L"%s / %s", d.c_str(), p.c_str());
-                lat_str = b;
+                dMs = r.direct_ms;
+                pMs = r.proxy_ms;
                 break;
             }
         }
-        m_listCtrl.SetItemText(idx, 3, lat_str.c_str());
+
+        wchar_t dBuf[32] = L"-";
+        wchar_t pBuf[32] = L"-";
+        if (dMs >= 0) swprintf_s(dBuf, L"%.0f ms", dMs);
+        if (pMs >= 0) swprintf_s(pBuf, L"%.0f ms", pMs);
+
+        m_listCtrl.SetItemText(idx, 2, dBuf);
+        m_listCtrl.SetItemText(idx, 3, pBuf);
     }
 }
 
@@ -215,11 +253,11 @@ void CTabLatencyDlg::LoadSelectedToEdit()
     POSITION pos = m_listCtrl.GetFirstSelectedItemPosition();
     if (pos)
     {
-        int sel = m_listCtrl.GetNextSelectedItem(pos);
-        if (sel >= 0 && sel < (int)m_targets.size())
+        int idx = m_listCtrl.GetNextSelectedItem(pos);
+        if (idx >= 0 && idx < (int)m_targets.size())
         {
-            m_edtName.SetWindowTextW(m_targets[sel].name.c_str());
-            m_edtUrl.SetWindowTextW(m_targets[sel].url.c_str());
+            m_edtName.SetWindowTextW(m_targets[idx].name.c_str());
+            m_edtUrl.SetWindowTextW(m_targets[idx].url.c_str());
         }
     }
 }
@@ -242,35 +280,30 @@ void CTabLatencyDlg::OnBnClickedAdd()
     m_edtName.GetWindowTextW(name);
     m_edtUrl.GetWindowTextW(url);
 
-    std::wstring u = url.GetString();
-    if (u.empty())
+    if (name.IsEmpty() || url.IsEmpty())
     {
-        AfxMessageBox(L"请输入有效的测试地址或域名！", MB_ICONWARNING);
+        AfxMessageBox(L"名称与地址不能为空！", MB_ICONWARNING);
         return;
     }
-    std::wstring n = name.GetString();
-    if (n.empty()) n = u;
 
-    // 检查是否存在当前选中项进行更新
     POSITION pos = m_listCtrl.GetFirstSelectedItemPosition();
     if (pos)
     {
-        int sel = m_listCtrl.GetNextSelectedItem(pos);
-        if (sel >= 0 && sel < (int)m_targets.size())
+        int idx = m_listCtrl.GetNextSelectedItem(pos);
+        if (idx >= 0 && idx < (int)m_targets.size())
         {
-            m_targets[sel].name = n;
-            m_targets[sel].url  = u;
+            m_targets[idx].name = name.GetString();
+            m_targets[idx].url  = url.GetString();
             RefreshList();
-            m_listCtrl.SetItemState(sel, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
             return;
         }
     }
 
-    // 否则添加新目标
-    m_targets.push_back({ n, u });
+    LatencyTarget target;
+    target.name = name.GetString();
+    target.url  = url.GetString();
+    m_targets.push_back(target);
     RefreshList();
-    m_edtName.SetWindowTextW(L"");
-    m_edtUrl.SetWindowTextW(L"");
 }
 
 void CTabLatencyDlg::OnBnClickedDel()
@@ -278,13 +311,11 @@ void CTabLatencyDlg::OnBnClickedDel()
     POSITION pos = m_listCtrl.GetFirstSelectedItemPosition();
     if (pos)
     {
-        int sel = m_listCtrl.GetNextSelectedItem(pos);
-        if (sel >= 0 && sel < (int)m_targets.size())
+        int idx = m_listCtrl.GetNextSelectedItem(pos);
+        if (idx >= 0 && idx < (int)m_targets.size())
         {
-            m_targets.erase(m_targets.begin() + sel);
+            m_targets.erase(m_targets.begin() + idx);
             RefreshList();
-            m_edtName.SetWindowTextW(L"");
-            m_edtUrl.SetWindowTextW(L"");
         }
     }
 }
@@ -294,12 +325,12 @@ void CTabLatencyDlg::OnBnClickedUp()
     POSITION pos = m_listCtrl.GetFirstSelectedItemPosition();
     if (pos)
     {
-        int sel = m_listCtrl.GetNextSelectedItem(pos);
-        if (sel > 0 && sel < (int)m_targets.size())
+        int idx = m_listCtrl.GetNextSelectedItem(pos);
+        if (idx > 0 && idx < (int)m_targets.size())
         {
-            std::swap(m_targets[sel], m_targets[sel - 1]);
+            std::swap(m_targets[idx], m_targets[idx - 1]);
             RefreshList();
-            m_listCtrl.SetItemState(sel - 1, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+            m_listCtrl.SetItemState(idx - 1, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
         }
     }
 }
@@ -309,12 +340,12 @@ void CTabLatencyDlg::OnBnClickedDown()
     POSITION pos = m_listCtrl.GetFirstSelectedItemPosition();
     if (pos)
     {
-        int sel = m_listCtrl.GetNextSelectedItem(pos);
-        if (sel >= 0 && sel + 1 < (int)m_targets.size())
+        int idx = m_listCtrl.GetNextSelectedItem(pos);
+        if (idx >= 0 && idx + 1 < (int)m_targets.size())
         {
-            std::swap(m_targets[sel], m_targets[sel + 1]);
+            std::swap(m_targets[idx], m_targets[idx + 1]);
             RefreshList();
-            m_listCtrl.SetItemState(sel + 1, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+            m_listCtrl.SetItemState(idx + 1, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
         }
     }
 }
@@ -324,39 +355,34 @@ void CTabLatencyDlg::OnBnClickedTest()
     POSITION pos = m_listCtrl.GetFirstSelectedItemPosition();
     if (!pos)
     {
-        AfxMessageBox(L"请先在列表中选中需要测速的目标行！", MB_ICONINFORMATION);
+        AfxMessageBox(L"请先在列表中选中一个要测速的目标项！", MB_ICONINFORMATION);
         return;
     }
-    int sel = m_listCtrl.GetNextSelectedItem(pos);
-    if (sel < 0 || sel >= (int)m_targets.size()) return;
+    int idx = m_listCtrl.GetNextSelectedItem(pos);
+    if (idx < 0 || idx >= (int)m_targets.size()) return;
 
-    LatencyTarget tgt = m_targets[sel];
-    bool use_proxy = g_data.m_setting_data.use_proxy;
-    std::wstring proxy = g_data.m_setting_data.proxy_address;
+    std::wstring url = m_targets[idx].url;
+    std::wstring proxy = g_data.m_setting_data.use_proxy ? g_data.m_setting_data.proxy_address : L"";
+
+    m_btnTest.EnableWindow(FALSE);
     HWND hWnd = m_hWnd;
 
-    m_listCtrl.SetItemText(sel, 3, L"测速中…");
+    std::thread([hWnd, url, proxy, idx]() {
+        double dMs = -1.0;
+        CDataManager::MeasureLatencyMs(url, L"", true, dMs);
 
-    std::thread([hWnd, sel, tgt, use_proxy, proxy]() {
-        double d_ms = -1, p_ms = -1;
-        CDataManager::MeasureLatencyMs(tgt.url, L"", true, d_ms);
-        if (use_proxy)
-            CDataManager::MeasureLatencyMs(tgt.url, proxy, false, p_ms);
+        double pMs = -1.0;
+        if (!proxy.empty())
+        {
+            CDataManager::MeasureLatencyMs(url, proxy, false, pMs);
+        }
 
         if (::IsWindow(hWnd))
         {
-            wchar_t b[64]{};
-            std::wstring d = (d_ms >= 0) ? std::to_wstring((int)(d_ms + 0.5)) + L"ms" : L"-";
-            std::wstring p = (p_ms >= 0) ? std::to_wstring((int)(p_ms + 0.5)) + L"ms" : L"-";
-            swprintf_s(b, L"%s / %s", d.c_str(), p.c_str());
-            HWND hList = ::GetDlgItem(hWnd, IDC_LATENCY_LIST);
-            if (hList)
-            {
-                LVITEM item{};
-                item.iSubItem = 3;
-                item.pszText = b;
-                ::SendMessage(hList, LVM_SETITEMTEXT, (WPARAM)sel, (LPARAM)&item);
-            }
+            wchar_t res[256];
+            swprintf_s(res, L"测速完成: 直连 %.0f ms | 代理 %.0f ms", dMs, pMs);
+            ::MessageBoxW(hWnd, res, L"测速结果", MB_ICONINFORMATION);
+            ::PostMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDC_LAT_TEST_BUTTON, 999), 0);
         }
     }).detach();
 }
@@ -367,30 +393,33 @@ void CTabLatencyDlg::GetData(SettingData& out) const
 }
 
 // ====================================================================
-// CTabStatusDlg —— Tab 2: 当前状态与安全检测
+// CTabStatusDlg —— Tab 2: 当前状态与安全检测报告
 // ====================================================================
-IMPLEMENT_DYNAMIC(CTabStatusDlg, CDialog)
+IMPLEMENT_DYNAMIC(CTabStatusDlg, CModernSubDlg)
 
 CTabStatusDlg::CTabStatusDlg(CWnd* pParent)
-    : CDialog(IDD_TAB_STATUS_INFO, pParent) {}
+    : CModernSubDlg(IDD_TAB_STATUS_INFO, pParent) {}
 
 void CTabStatusDlg::DoDataExchange(CDataExchange* pDX)
 {
-    CDialog::DoDataExchange(pDX);
+    CModernSubDlg::DoDataExchange(pDX);
     DDX_Control(pDX, IDC_STAT_DIRECT_IP,     m_stcDirectIp);
     DDX_Control(pDX, IDC_STAT_DIRECT_PLACE,  m_stcDirectPlace);
     DDX_Control(pDX, IDC_STAT_DIRECT_ISP,    m_stcDirectIsp);
     DDX_Control(pDX, IDC_STAT_DIRECT_THREAT, m_stcDirectThreat);
+    DDX_Control(pDX, IDC_BTN_COPY_DIRECT,    m_btnCopyDirect);
 
     DDX_Control(pDX, IDC_STAT_PROXY_IP,      m_stcProxyIp);
     DDX_Control(pDX, IDC_STAT_PROXY_PLACE,   m_stcProxyPlace);
     DDX_Control(pDX, IDC_STAT_PROXY_ISP,     m_stcProxyIsp);
     DDX_Control(pDX, IDC_STAT_PROXY_THREAT,  m_stcProxyThreat);
+    DDX_Control(pDX, IDC_BTN_COPY_PROXY,     m_btnCopyProxy);
 
     DDX_Control(pDX, IDC_STATUS_INFO_EDIT,   m_edtStatus);
+    DDX_Control(pDX, IDC_BTN_COPY_ALL,       m_btnCopyAll);
 }
 
-BEGIN_MESSAGE_MAP(CTabStatusDlg, CDialog)
+BEGIN_MESSAGE_MAP(CTabStatusDlg, CModernSubDlg)
     ON_BN_CLICKED(IDC_BTN_COPY_DIRECT, &CTabStatusDlg::OnBnClickedCopyDirect)
     ON_BN_CLICKED(IDC_BTN_COPY_PROXY,  &CTabStatusDlg::OnBnClickedCopyProxy)
     ON_BN_CLICKED(IDC_BTN_COPY_ALL,    &CTabStatusDlg::OnBnClickedCopyAll)
@@ -398,200 +427,158 @@ END_MESSAGE_MAP()
 
 BOOL CTabStatusDlg::OnInitDialog()
 {
-    CDialog::OnInitDialog();
+    CModernSubDlg::OnInitDialog();
+
+    // 注册卡片 (DLU 坐标)
+    AddCard(0, 0, 426, 56, L"直连网络状况");
+    AddCard(0, 62, 426, 118, L"代理出口网络状况");
+    AddCard(0, 124, 426, 212, L"完整探测诊断报告");
+
+    // 突出主操作复制全部按钮
+    m_btnCopyAll.SetAccent(true);
+
     UpdateStatusView();
     return TRUE;
 }
 
 void CTabStatusDlg::UpdateStatusView()
 {
-    auto FormatThreatBadge = [](const IpThreatInfo& t) -> std::wstring {
-        std::wstring type;
-        if (t.is_datacenter) { if (!type.empty()) type += L" + "; type += L"IDC机房"; }
-        if (t.is_mobile)     { if (!type.empty()) type += L" + "; type += L"移动网络"; }
-        if (t.is_vpn)        { if (!type.empty()) type += L" + "; type += L"VPN"; }
-        if (t.is_proxy)      { if (!type.empty()) type += L" + "; type += L"代理"; }
-        if (t.is_tor)        { if (!type.empty()) type += L" + "; type += L"Tor"; }
-        if (type.empty()) type = L"普通住宅宽带";
+    const auto& dIp = g_data.m_public_ip_direct;
+    const auto& dPlace = g_data.m_place_direct;
+    const auto& dIsp = g_data.m_isp_direct;
+    const auto& dThreat = g_data.m_threat_direct;
 
-        std::wstring out = L"网络类型: " + type + L"\n纯净度: " + (t.is_abuser ? L"恶意黑名单" : L"纯净");
-        if (!t.risk_score.empty()) out += L" (欺诈分: " + t.risk_score + L")";
-        return out;
-    };
+    const auto& pIp = g_data.m_public_ip_proxy;
+    const auto& pPlace = g_data.m_place_proxy;
+    const auto& pIsp = g_data.m_isp_proxy;
+    const auto& pThreat = g_data.m_threat_proxy;
 
-    // 直连卡片
-    m_stcDirectIp.SetWindowTextW((L"公网 IP: " + (g_data.m_public_ip_direct.empty() ? L"-" : g_data.m_public_ip_direct)).c_str());
-    m_stcDirectPlace.SetWindowTextW((L"地区: " + (g_data.m_place_direct.empty() ? L"-" : g_data.m_place_direct)).c_str());
-    m_stcDirectIsp.SetWindowTextW((L"运营商: " + (g_data.m_isp_direct.empty() ? L"-" : g_data.m_isp_direct)).c_str());
-    m_stcDirectThreat.SetWindowTextW(FormatThreatBadge(g_data.m_threat_direct).c_str());
+    // 1. 直连卡片文本
+    m_stcDirectIp.SetWindowTextW((L"公网 IP: " + (dIp.empty() ? L"-" : dIp)).c_str());
+    m_stcDirectPlace.SetWindowTextW((L"地区: " + (dPlace.empty() ? L"-" : dPlace)).c_str());
+    m_stcDirectIsp.SetWindowTextW((L"运营商: " + (dIsp.empty() ? L"-" : dIsp)).c_str());
 
-    // 代理卡片
+    std::wstring dt = L"类型: ";
+    if (dThreat.is_mobile) dt += L"移动网络";
+    else if (dThreat.is_datacenter) dt += L"机房/数据中心";
+    else dt += L"普通宽带";
+
+    dt += L" | 状态: ";
+    if (dThreat.is_abuser) dt += L"黑名单/风险";
+    else if (dThreat.is_proxy || dThreat.is_vpn || dThreat.is_tor) dt += L"代理/VPN";
+    else dt += L"纯净";
+    m_stcDirectThreat.SetWindowTextW(dt.c_str());
+
+    // 2. 代理卡片文本
     if (g_data.m_setting_data.use_proxy)
     {
-        m_stcProxyIp.SetWindowTextW((L"出口 IP: " + (g_data.m_public_ip_proxy.empty() ? L"-" : g_data.m_public_ip_proxy)).c_str());
-        m_stcProxyPlace.SetWindowTextW((L"地区: " + (g_data.m_place_proxy.empty() ? L"-" : g_data.m_place_proxy)).c_str());
-        m_stcProxyIsp.SetWindowTextW((L"运营商: " + (g_data.m_isp_proxy.empty() ? L"-" : g_data.m_isp_proxy)).c_str());
-        m_stcProxyThreat.SetWindowTextW(FormatThreatBadge(g_data.m_threat_proxy).c_str());
+        m_stcProxyIp.SetWindowTextW((L"出口 IP: " + (pIp.empty() ? L"-" : pIp)).c_str());
+        m_stcProxyPlace.SetWindowTextW((L"地区: " + (pPlace.empty() ? L"-" : pPlace)).c_str());
+        m_stcProxyIsp.SetWindowTextW((L"运营商: " + (pIsp.empty() ? L"-" : pIsp)).c_str());
+
+        std::wstring pt = L"类型: ";
+        if (pThreat.is_mobile) pt += L"移动网络";
+        else if (pThreat.is_datacenter) pt += L"机房/数据中心";
+        else pt += L"普通宽带";
+
+        pt += L" | 状态: ";
+        if (pThreat.is_abuser) pt += L"黑名单/风险";
+        else if (pThreat.is_proxy || pThreat.is_vpn || pThreat.is_tor) pt += L"代理/VPN";
+        else pt += L"纯净";
+        m_stcProxyThreat.SetWindowTextW(pt.c_str());
     }
     else
     {
-        m_stcProxyIp.SetWindowTextW(L"出口 IP: （未启用代理）");
+        m_stcProxyIp.SetWindowTextW(L"出口 IP: (未启用代理功能)");
         m_stcProxyPlace.SetWindowTextW(L"地区: -");
         m_stcProxyIsp.SetWindowTextW(L"运营商: -");
-        m_stcProxyThreat.SetWindowTextW(L"网络类型: 未使用代理\n纯净度: -");
+        m_stcProxyThreat.SetWindowTextW(L"网络属性: -");
     }
 
-    // 完整展示框：将所有可显示信息完整呈现，所见即所拷
-    std::wstring fullText;
-
-    // 1. 直连网络信息
-    if (!g_data.m_public_ip_direct.empty() || !g_data.m_place_direct.empty())
+    // 3. 完整诊断报告展示框
+    std::wstring report = g_data.m_tooltip;
+    std::wstring crlfReport;
+    crlfReport.reserve(report.size() + 64);
+    for (size_t i = 0; i < report.size(); ++i)
     {
-        fullText += L"直: " + (g_data.m_public_ip_direct.empty() ? L"-" : g_data.m_public_ip_direct);
-        if (!g_data.m_place_direct.empty()) fullText += L"  [" + g_data.m_place_direct + L"]";
-        if (!g_data.m_isp_direct.empty())   fullText += L"  " + g_data.m_isp_direct;
-        fullText += L"\r\n    ";
+        if (report[i] == L'\n' && (i == 0 || report[i - 1] != L'\r'))
         {
-            std::wstring type;
-            const auto& t = g_data.m_threat_direct;
-            if (t.is_datacenter) { if (!type.empty()) type += L" + "; type += L"IDC机房"; }
-            if (t.is_mobile)     { if (!type.empty()) type += L" + "; type += L"移动网络"; }
-            if (t.is_vpn)        { if (!type.empty()) type += L" + "; type += L"VPN"; }
-            if (t.is_proxy)      { if (!type.empty()) type += L" + "; type += L"代理"; }
-            if (t.is_tor)        { if (!type.empty()) type += L" + "; type += L"Tor"; }
-            if (type.empty()) type = L"普通宽带";
-            fullText += L"类型: " + type + L" | 状态: " + (t.is_abuser ? L"恶意/黑名单" : L"纯净");
-            if (!t.risk_score.empty()) fullText += L" (欺诈分: " + t.risk_score + L")";
-        }
-        fullText += L"\r\n";
-    }
-
-    // 2. 代理出口信息
-    if (g_data.m_setting_data.use_proxy)
-    {
-        if (!g_data.m_public_ip_proxy.empty() || !g_data.m_place_proxy.empty())
-        {
-            fullText += L"代: " + (g_data.m_public_ip_proxy.empty() ? L"-" : g_data.m_public_ip_proxy);
-            if (!g_data.m_place_proxy.empty()) fullText += L"  [" + g_data.m_place_proxy + L"]";
-            if (!g_data.m_isp_proxy.empty())   fullText += L"  " + g_data.m_isp_proxy;
-            fullText += L"\r\n    ";
-            {
-                std::wstring type;
-                const auto& t = g_data.m_threat_proxy;
-                if (t.is_datacenter) { if (!type.empty()) type += L" + "; type += L"IDC机房"; }
-                if (t.is_mobile)     { if (!type.empty()) type += L" + "; type += L"移动网络"; }
-                if (t.is_vpn)        { if (!type.empty()) type += L" + "; type += L"VPN"; }
-                if (t.is_proxy)      { if (!type.empty()) type += L" + "; type += L"代理"; }
-                if (t.is_tor)        { if (!type.empty()) type += L" + "; type += L"Tor"; }
-                if (type.empty()) type = L"普通宽带";
-                fullText += L"类型: " + type + L" | 状态: " + (t.is_abuser ? L"恶意/黑名单" : L"纯净");
-                if (!t.risk_score.empty()) fullText += L" (欺诈分: " + t.risk_score + L")";
-            }
-            fullText += L"\r\n";
-        }
-    }
-    else
-    {
-        fullText += L"代: （未启用代理）\r\n";
-    }
-
-    // 3. 延迟测速
-    if (!g_data.m_latency_results.empty())
-    {
-        fullText += L"延迟:\r\n直: ";
-        bool firstD = true;
-        for (const auto& r : g_data.m_latency_results)
-        {
-            if (r.direct_ms >= 0)
-            {
-                if (!firstD) fullText += L" | ";
-                fullText += r.name + L" - " + std::to_wstring((int)(r.direct_ms + 0.5)) + L"ms";
-                firstD = false;
-            }
-        }
-        if (firstD) fullText += L"-";
-        fullText += L"\r\n代: ";
-        if (g_data.m_setting_data.use_proxy)
-        {
-            bool firstP = true;
-            for (const auto& r : g_data.m_latency_results)
-            {
-                if (r.proxy_ms >= 0)
-                {
-                    if (!firstP) fullText += L" | ";
-                    fullText += r.name + L" - " + std::to_wstring((int)(r.proxy_ms + 0.5)) + L"ms";
-                    firstP = false;
-                }
-            }
-            if (firstP) fullText += L"-";
+            crlfReport += L"\r\n";
         }
         else
         {
-            fullText += L"-";
+            crlfReport += report[i];
         }
-        fullText += L"\r\n";
     }
-
-    // 4. 更新时间
-    std::wstring lastUpdate = g_data.GetLastUpdateStatusString();
-    if (!lastUpdate.empty())
-        fullText += lastUpdate;
-
-    m_edtStatus.SetWindowTextW(fullText.empty() ? L"（尚无数据，请等待后台刷新完成）" : fullText.c_str());
+    m_edtStatus.SetWindowTextW(crlfReport.c_str());
 }
 
 void CTabStatusDlg::CopyToClipboard(const std::wstring& text)
 {
     if (text.empty()) return;
-    if (OpenClipboard())
+    if (!OpenClipboard()) return;
+    EmptyClipboard();
+
+    HGLOBAL hGlob = GlobalAlloc(GMEM_MOVEABLE, (text.size() + 1) * sizeof(wchar_t));
+    if (hGlob)
     {
-        EmptyClipboard();
-        size_t size = (text.size() + 1) * sizeof(wchar_t);
-        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, size);
-        if (hMem)
+        wchar_t* pBuf = (wchar_t*)GlobalLock(hGlob);
+        if (pBuf)
         {
-            memcpy(GlobalLock(hMem), text.c_str(), size);
-            GlobalUnlock(hMem);
-            SetClipboardData(CF_UNICODETEXT, hMem);
+            wcscpy_s(pBuf, text.size() + 1, text.c_str());
+            GlobalUnlock(hGlob);
+            SetClipboardData(CF_UNICODETEXT, hGlob);
         }
-        CloseClipboard();
     }
+    CloseClipboard();
+    AfxMessageBox(L"已成功复制到剪贴板！", MB_ICONINFORMATION);
 }
 
 void CTabStatusDlg::OnBnClickedCopyDirect()
 {
-    std::wstring info;
-    info += L"直: " + (g_data.m_public_ip_direct.empty() ? L"-" : g_data.m_public_ip_direct);
-    if (!g_data.m_place_direct.empty()) info += L"  [" + g_data.m_place_direct + L"]";
-    if (!g_data.m_isp_direct.empty())   info += L"  " + g_data.m_isp_direct;
-    CopyToClipboard(info);
+    const auto& ip = g_data.m_public_ip_direct;
+    if (ip.empty())
+    {
+        AfxMessageBox(L"当前尚未获取到直连 IP！", MB_ICONWARNING);
+        return;
+    }
+    std::wstring s = L"直连 IP: " + ip;
+    if (!g_data.m_place_direct.empty())
+        s += L" [" + g_data.m_place_direct + L"]";
+    if (!g_data.m_isp_direct.empty())
+        s += L" " + g_data.m_isp_direct;
+    CopyToClipboard(s);
 }
 
 void CTabStatusDlg::OnBnClickedCopyProxy()
 {
-    std::wstring info;
-    if (g_data.m_setting_data.use_proxy)
+    const auto& ip = g_data.m_public_ip_proxy;
+    if (ip.empty())
     {
-        info += L"代: " + (g_data.m_public_ip_proxy.empty() ? L"-" : g_data.m_public_ip_proxy);
-        if (!g_data.m_place_proxy.empty()) info += L"  [" + g_data.m_place_proxy + L"]";
-        if (!g_data.m_isp_proxy.empty())   info += L"  " + g_data.m_isp_proxy;
+        AfxMessageBox(L"当前尚未获取到代理出口 IP！", MB_ICONWARNING);
+        return;
     }
-    else
-    {
-        info = L"代: （未启用代理）";
-    }
-    CopyToClipboard(info);
+    std::wstring s = L"代理 IP: " + ip;
+    if (!g_data.m_place_proxy.empty())
+        s += L" [" + g_data.m_place_proxy + L"]";
+    if (!g_data.m_isp_proxy.empty())
+        s += L" " + g_data.m_isp_proxy;
+    CopyToClipboard(s);
 }
 
 void CTabStatusDlg::OnBnClickedCopyAll()
 {
     CString s;
     m_edtStatus.GetWindowTextW(s);
+    if (s.IsEmpty())
+    {
+        s = g_data.m_tooltip.c_str();
+    }
     CopyToClipboard(s.GetString());
 }
 
 // ====================================================================
-// COptionsDlg —— 主对话框容器
+// COptionsDlg —— 主对话框容器 (现代 Fluent 顶栏分段导航 + 柔和底色)
 // ====================================================================
 IMPLEMENT_DYNAMIC(COptionsDlg, CDialog)
 
@@ -604,26 +591,39 @@ COptionsDlg::COptionsDlg(CWnd* pParent)
     m_pages[0] = &m_pageProxyApi;
     m_pages[1] = &m_pageLatency;
     m_pages[2] = &m_pageStatus;
+    m_brWindowBg.CreateSolidBrush(FluentTheme::WindowBg);
 }
 
 void COptionsDlg::DoDataExchange(CDataExchange* pDX)
 {
     CDialog::DoDataExchange(pDX);
-    DDX_Control(pDX, IDC_TAB_MAIN, m_tabCtrl);
 }
 
 BEGIN_MESSAGE_MAP(COptionsDlg, CDialog)
-    ON_NOTIFY(TCN_SELCHANGE, IDC_TAB_MAIN, &COptionsDlg::OnTcnSelchangeTabMain)
+    ON_WM_ERASEBKGND()
+    ON_WM_CTLCOLOR()
 END_MESSAGE_MAP()
 
 BOOL COptionsDlg::OnInitDialog()
 {
     CDialog::OnInitDialog();
 
-    m_tabCtrl.InsertItem(0, L"常规 / 网络");
-    m_tabCtrl.InsertItem(1, L"延迟目标");
-    m_tabCtrl.InsertItem(2, L"当前状态与安全");
+    // 1. 初始化顶部现代分段胶囊栏
+    m_tabBar.SubclassDlgItem(IDC_TAB_MAIN, this);
+    m_tabBar.AddTab(L"常规 / 网络");
+    m_tabBar.AddTab(L"延迟目标");
+    m_tabBar.AddTab(L"当前状态与安全");
+    m_tabBar.SetOnSelChanged([this](int sel) {
+        SwitchToPage(sel);
+    });
 
+    // 2. 初始化底部确定/取消按钮为现代圆角卡片按钮
+    m_btnOK.SubclassDlgItem(IDOK, this);
+    m_btnOK.SetAccent(true); // 强调蓝色主操作按钮
+
+    m_btnCancel.SubclassDlgItem(IDCANCEL, this);
+
+    // 3. 创建三大子对话框卡片页
     m_pageProxyApi.Create(IDD_TAB_PROXY_API, this);
     m_pageLatency.Create(IDD_TAB_LATENCY_LIST, this);
     m_pageStatus.Create(IDD_TAB_STATUS_INFO, this);
@@ -634,18 +634,40 @@ BOOL COptionsDlg::OnInitDialog()
     return TRUE;
 }
 
+BOOL COptionsDlg::OnEraseBkgnd(CDC* pDC)
+{
+    CRect rc;
+    GetClientRect(&rc);
+    pDC->FillSolidRect(&rc, FluentTheme::WindowBg);
+    return TRUE;
+}
+
+HBRUSH COptionsDlg::OnCtlColor(CDC* /*pDC*/, CWnd* /*pWnd*/, UINT nCtlColor)
+{
+    if (nCtlColor == CTLCOLOR_DLG || nCtlColor == CTLCOLOR_STATIC)
+    {
+        return (HBRUSH)m_brWindowBg.GetSafeHandle();
+    }
+    return (HBRUSH)m_brWindowBg.GetSafeHandle();
+}
+
 void COptionsDlg::PositionPages()
 {
-    CRect tabRect;
-    m_tabCtrl.GetWindowRect(&tabRect);
-    ScreenToClient(&tabRect);
-    m_tabCtrl.AdjustRect(FALSE, &tabRect);
-    tabRect.DeflateRect(1, 1);
+    CRect barRc;
+    m_tabBar.GetWindowRect(&barRc);
+    ScreenToClient(&barRc);
+
+    CRect okRc;
+    m_btnOK.GetWindowRect(&okRc);
+    ScreenToClient(&okRc);
+
+    // 子页面放置在分段胶囊栏与确定按钮之间，并保持呼吸感外边距
+    CRect pageRect(barRc.left, barRc.bottom + 8, barRc.right, okRc.top - 8);
 
     for (auto* p : m_pages)
     {
         if (p && p->GetSafeHwnd())
-            p->MoveWindow(tabRect);
+            p->MoveWindow(pageRect);
     }
 }
 
@@ -662,12 +684,6 @@ void COptionsDlg::SwitchToPage(int idx)
     {
         m_pageStatus.UpdateStatusView();
     }
-}
-
-void COptionsDlg::OnTcnSelchangeTabMain(NMHDR* /*pNMHDR*/, LRESULT* pResult)
-{
-    SwitchToPage(m_tabCtrl.GetCurSel());
-    *pResult = 0;
 }
 
 void COptionsDlg::OnOK()

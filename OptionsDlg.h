@@ -2,12 +2,13 @@
 #include <afxcmn.h>
 #include "resource.h"
 #include "DataManager.h"
+#include "ModernUI.h"
 #include <vector>
 
 // ────────────────────────────────────────────────────────────────────────
-// Tab 0: 常规 / 网络 & 代理 设置
+// Tab 0: 常规 / 网络 & 代理 设置 (现代圆角卡片)
 // ────────────────────────────────────────────────────────────────────────
-class CTabProxyApiDlg : public CDialog
+class CTabProxyApiDlg : public CModernSubDlg
 {
     DECLARE_DYNAMIC(CTabProxyApiDlg)
 public:
@@ -31,22 +32,22 @@ protected:
 private:
     void UpdateProxyEditState();
 
-    CComboBox m_cmbDisplayFormat;
-    CButton   m_chkUseProxy;
-    CEdit     m_edtProxy;
-    CEdit     m_edtDomesticApi;
-    CEdit     m_edtForeignApi;
-    CEdit     m_edtInterval;
-    CButton   m_btnRefresh;
-    CStatic   m_stcStatus;
-    CButton   m_btnTestProxy;
-    CStatic   m_stcTestProxyStatus;
+    CComboBox     m_cmbDisplayFormat;
+    CButton       m_chkUseProxy;
+    CEdit         m_edtProxy;
+    CEdit         m_edtDomesticApi;
+    CEdit         m_edtForeignApi;
+    CEdit         m_edtInterval;
+    CModernButton m_btnRefresh;
+    CStatic       m_stcStatus;
+    CModernButton m_btnTestProxy;
+    CStatic       m_stcTestProxyStatus;
 };
 
 // ────────────────────────────────────────────────────────────────────────
-// Tab 1: 延迟目标设置（动态 ListView 报表，带连通性与增删排）
+// Tab 1: 延迟目标设置（现代卡片 + Explorer 风格列表）
 // ────────────────────────────────────────────────────────────────────────
-class CTabLatencyDlg : public CDialog
+class CTabLatencyDlg : public CModernSubDlg
 {
     DECLARE_DYNAMIC(CTabLatencyDlg)
 public:
@@ -74,16 +75,21 @@ private:
     void RefreshList();
     void LoadSelectedToEdit();
 
-    CListCtrl m_listCtrl;
-    CEdit     m_edtName;
-    CEdit     m_edtUrl;
+    CListCtrl     m_listCtrl;
+    CEdit         m_edtName;
+    CEdit         m_edtUrl;
+    CModernButton m_btnAdd;
+    CModernButton m_btnDel;
+    CModernButton m_btnUp;
+    CModernButton m_btnDown;
+    CModernButton m_btnTest;
     std::vector<LatencyTarget> m_targets;
 };
 
 // ────────────────────────────────────────────────────────────────────────
-// Tab 2: 当前状态与安全检测报告（卡片式对照 + 一键复制）
+// Tab 2: 当前状态与安全检测报告（现代状态卡片 + 对齐复制）
 // ────────────────────────────────────────────────────────────────────────
-class CTabStatusDlg : public CDialog
+class CTabStatusDlg : public CModernSubDlg
 {
     DECLARE_DYNAMIC(CTabStatusDlg)
 public:
@@ -106,21 +112,24 @@ protected:
 private:
     void CopyToClipboard(const std::wstring& text);
 
-    CStatic m_stcDirectIp;
-    CStatic m_stcDirectPlace;
-    CStatic m_stcDirectIsp;
-    CStatic m_stcDirectThreat;
+    CStatic       m_stcDirectIp;
+    CStatic       m_stcDirectPlace;
+    CStatic       m_stcDirectIsp;
+    CStatic       m_stcDirectThreat;
+    CModernButton m_btnCopyDirect;
 
-    CStatic m_stcProxyIp;
-    CStatic m_stcProxyPlace;
-    CStatic m_stcProxyIsp;
-    CStatic m_stcProxyThreat;
+    CStatic       m_stcProxyIp;
+    CStatic       m_stcProxyPlace;
+    CStatic       m_stcProxyIsp;
+    CStatic       m_stcProxyThreat;
+    CModernButton m_btnCopyProxy;
 
-    CEdit   m_edtStatus;
+    CEdit         m_edtStatus;
+    CModernButton m_btnCopyAll;
 };
 
 // ────────────────────────────────────────────────────────────────────────
-// 主对话框：Tab 容器
+// 主对话框：现代顶栏分段导航 + Fluent 容器
 // ────────────────────────────────────────────────────────────────────────
 class COptionsDlg : public CDialog
 {
@@ -134,14 +143,19 @@ protected:
     virtual void OnOK() override;
     virtual void DoDataExchange(CDataExchange* pDX) override;
 
-    afx_msg void OnTcnSelchangeTabMain(NMHDR* pNMHDR, LRESULT* pResult);
+    afx_msg BOOL OnEraseBkgnd(CDC* pDC);
+    afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
     DECLARE_MESSAGE_MAP()
 
 private:
     void SwitchToPage(int idx);
     void PositionPages();
 
-    CTabCtrl        m_tabCtrl;
+    CModernTabBar   m_tabBar;
+    CModernButton   m_btnOK;
+    CModernButton   m_btnCancel;
+    CBrush          m_brWindowBg;
+
     CTabProxyApiDlg m_pageProxyApi;
     CTabLatencyDlg  m_pageLatency;
     CTabStatusDlg   m_pageStatus;
