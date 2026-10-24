@@ -30,7 +30,9 @@ BEGIN_MESSAGE_MAP(CTabProxyApiDlg, CModernSubDlg)
     ON_BN_CLICKED(IDC_USE_PROXY_CHECK,    &CTabProxyApiDlg::OnBnClickedUseProxy)
     ON_BN_CLICKED(IDC_REFRESH_NOW_BUTTON, &CTabProxyApiDlg::OnBnClickedRefreshNow)
     ON_BN_CLICKED(IDC_TEST_PROXY_BUTTON,  &CTabProxyApiDlg::OnBnClickedTestProxy)
+    ON_CBN_SELCHANGE(IDC_DISPLAY_FORMAT_COMBO, &CTabProxyApiDlg::OnCbnSelchangeDisplayFormat)
     ON_WM_TIMER()
+    ON_MESSAGE(WM_TEST_PROXY_DONE,        &CTabProxyApiDlg::OnTestProxyDone)
 END_MESSAGE_MAP()
 
 BOOL CTabProxyApiDlg::OnInitDialog()
@@ -65,6 +67,10 @@ BOOL CTabProxyApiDlg::OnInitDialog()
     m_edtInterval.SetWindowTextW(buf);
 
     UpdateProxyEditState();
+
+    // 启动 1 秒心跳定时器用于自动刷新倒计时动态可视化
+    SetTimer(2, 1000, nullptr);
+
     return TRUE;
 }
 
@@ -83,11 +89,28 @@ void CTabProxyApiDlg::OnBnClickedUseProxy()
     UpdateProxyEditState();
 }
 
+void CTabProxyApiDlg::OnCbnSelchangeDisplayFormat()
+{
+    int fmt = m_cmbDisplayFormat.GetCurSel();
+    if (fmt >= 0 && fmt <= 4)
+    {
+        g_data.m_setting_data.display_format = fmt;
+        g_data.ReformatTaskbarTexts();
+        g_data.SaveConfig();
+    }
+}
+
 void CTabProxyApiDlg::OnBnClickedRefreshNow()
 {
+    // 1. 立即同步当前界面所有配置到全局数据并重绘任务栏
+    GetData(g_data.m_setting_data);
+    g_data.SaveConfig();
+    g_data.ReformatTaskbarTexts();
+
+    // 2. 启动后台并发探测
     g_data.ForceUpdateAsync();
     m_btnRefresh.EnableWindow(FALSE);
-    m_stcStatus.SetWindowTextW(L"正在并发探测各线路与测速目标…");
+    m_stcStatus.SetWindowTextW(L"⏳ 正在并发探测各线路与测速目标…");
     SetTimer(1, 300, nullptr);
 }
 
@@ -118,21 +141,55 @@ void CTabProxyApiDlg::OnBnClickedTestProxy()
                 swprintf_s(res, L"✗ 代理连接失败: %s", msg.c_str());
             }
 
-            ::PostMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDC_TEST_PROXY_BUTTON, 999), 0);
-            ::SetDlgItemTextW(hWnd, IDC_TEST_PROXY_STATUS, res);
+            wchar_t* pRes = _wcsdup(res);
+            ::PostMessageW(hWnd, WM_TEST_PROXY_DONE, (WPARAM)pRes, 0);
         }
     }).detach();
+}
+
+LRESULT CTabProxyApiDlg::OnTestProxyDone(WPARAM wParam, LPARAM /*lParam*/)
+{
+    wchar_t* pRes = (wchar_t*)wParam;
+    if (pRes)
+    {
+        m_stcTestProxyStatus.SetWindowTextW(pRes);
+        free(pRes);
+    }
+    m_btnTestProxy.EnableWindow(TRUE);
+    return 0;
 }
 
 void CTabProxyApiDlg::OnTimer(UINT_PTR nIDEvent)
 {
     if (nIDEvent == 1)
     {
+        // 探测完成检测
         if (!g_data.IsUpdating())
         {
             KillTimer(1);
             m_btnRefresh.EnableWindow(TRUE);
-            m_stcStatus.SetWindowTextW(L"✓ 探测已完成并应用到任务栏。");
+        }
+    }
+    else if (nIDEvent == 2)
+    {
+        // 自动刷新倒计时动态可视化
+        if (g_data.IsUpdating())
+        {
+            m_stcStatus.SetWindowTextW(L"⏳ 正在并发探测各线路与测速目标…");
+        }
+        else
+        {
+            int remainSec = g_data.GetRefreshCountdownSec();
+            wchar_t tip[128];
+            if (remainSec > 0)
+            {
+                swprintf_s(tip, L"● 自动监控中 ｜ 下次刷新倒计时: %d 秒", remainSec);
+            }
+            else
+            {
+                swprintf_s(tip, L"● 自动监控中 ｜ 即将触发刷新…");
+            }
+            m_stcStatus.SetWindowTextW(tip);
         }
     }
     CModernSubDlg::OnTimer(nIDEvent);
@@ -189,6 +246,8 @@ BEGIN_MESSAGE_MAP(CTabLatencyDlg, CModernSubDlg)
     ON_BN_CLICKED(IDC_LAT_TEST_BUTTON, &CTabLatencyDlg::OnBnClickedTest)
     ON_NOTIFY(NM_CLICK,   IDC_LATENCY_LIST, &CTabLatencyDlg::OnNMClickList)
     ON_NOTIFY(NM_DBLCLK,  IDC_LATENCY_LIST, &CTabLatencyDlg::OnNMDblclkList)
+    ON_WM_SIZE()
+    ON_MESSAGE(WM_TEST_LATENCY_DONE,   &CTabLatencyDlg::OnTestLatencyDone)
 END_MESSAGE_MAP()
 
 BOOL CTabLatencyDlg::OnInitDialog()
@@ -213,8 +272,44 @@ BOOL CTabLatencyDlg::OnInitDialog()
 
     m_targets = g_data.m_setting_data.latency_targets;
     RefreshList();
+    AdjustColumnWidths();
 
     return TRUE;
+}
+
+void CTabLatencyDlg::AdjustColumnWidths()
+{
+    if (!m_listCtrl.GetSafeHwnd()) return;
+    CRect rc;
+    m_listCtrl.GetClientRect(&rc);
+    int totalW = rc.Width();
+    if (totalW <= 80) return;
+
+    int availW = totalW - 4; // 扣除轻微边缘留白
+
+    // 比例分配：名称 20%，直连延迟 17%，代理延迟 17%，剩余全部自适应给 地址/URL
+    int w0 = availW * 20 / 100;
+    if (w0 < 65) w0 = 65;
+
+    int w2 = availW * 17 / 100;
+    if (w2 < 65) w2 = 65;
+
+    int w3 = availW * 17 / 100;
+    if (w3 < 65) w3 = 65;
+
+    int w1 = availW - w0 - w2 - w3;
+    if (w1 < 90) w1 = 90;
+
+    m_listCtrl.SetColumnWidth(0, w0);
+    m_listCtrl.SetColumnWidth(1, w1);
+    m_listCtrl.SetColumnWidth(2, w2);
+    m_listCtrl.SetColumnWidth(3, w3);
+}
+
+void CTabLatencyDlg::OnSize(UINT nType, int cx, int cy)
+{
+    CModernSubDlg::OnSize(nType, cx, cy);
+    AdjustColumnWidths();
 }
 
 void CTabLatencyDlg::RefreshList()
@@ -295,6 +390,7 @@ void CTabLatencyDlg::OnBnClickedAdd()
             m_targets[idx].name = name.GetString();
             m_targets[idx].url  = url.GetString();
             RefreshList();
+            AdjustColumnWidths();
             return;
         }
     }
@@ -304,6 +400,7 @@ void CTabLatencyDlg::OnBnClickedAdd()
     target.url  = url.GetString();
     m_targets.push_back(target);
     RefreshList();
+    AdjustColumnWidths();
 }
 
 void CTabLatencyDlg::OnBnClickedDel()
@@ -316,6 +413,7 @@ void CTabLatencyDlg::OnBnClickedDel()
         {
             m_targets.erase(m_targets.begin() + idx);
             RefreshList();
+            AdjustColumnWidths();
         }
     }
 }
@@ -330,6 +428,7 @@ void CTabLatencyDlg::OnBnClickedUp()
         {
             std::swap(m_targets[idx], m_targets[idx - 1]);
             RefreshList();
+            AdjustColumnWidths();
             m_listCtrl.SetItemState(idx - 1, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
         }
     }
@@ -345,6 +444,7 @@ void CTabLatencyDlg::OnBnClickedDown()
         {
             std::swap(m_targets[idx], m_targets[idx + 1]);
             RefreshList();
+            AdjustColumnWidths();
             m_listCtrl.SetItemState(idx + 1, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
         }
     }
@@ -381,10 +481,24 @@ void CTabLatencyDlg::OnBnClickedTest()
         {
             wchar_t res[256];
             swprintf_s(res, L"测速完成: 直连 %.0f ms | 代理 %.0f ms", dMs, pMs);
-            ::MessageBoxW(hWnd, res, L"测速结果", MB_ICONINFORMATION);
-            ::PostMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDC_LAT_TEST_BUTTON, 999), 0);
+            wchar_t* pRes = _wcsdup(res);
+            ::PostMessageW(hWnd, WM_TEST_LATENCY_DONE, (WPARAM)pRes, 0);
         }
     }).detach();
+}
+
+LRESULT CTabLatencyDlg::OnTestLatencyDone(WPARAM wParam, LPARAM /*lParam*/)
+{
+    wchar_t* pRes = (wchar_t*)wParam;
+    if (pRes)
+    {
+        AfxMessageBox(pRes, MB_ICONINFORMATION);
+        free(pRes);
+    }
+    m_btnTest.EnableWindow(TRUE);
+    RefreshList();
+    AdjustColumnWidths();
+    return 0;
 }
 
 void CTabLatencyDlg::GetData(SettingData& out) const
@@ -667,8 +781,12 @@ void COptionsDlg::PositionPages()
     for (auto* p : m_pages)
     {
         if (p && p->GetSafeHwnd())
+        {
             p->MoveWindow(pageRect);
+        }
     }
+    // 让延迟列表根据定位后的真实窗口宽度重新自适应
+    m_pageLatency.AdjustColumnWidths();
 }
 
 void COptionsDlg::SwitchToPage(int idx)
@@ -680,7 +798,11 @@ void COptionsDlg::SwitchToPage(int idx)
     }
     m_curPage = idx;
 
-    if (idx == 2)
+    if (idx == 1)
+    {
+        m_pageLatency.AdjustColumnWidths();
+    }
+    else if (idx == 2)
     {
         m_pageStatus.UpdateStatusView();
     }
@@ -693,6 +815,7 @@ void COptionsDlg::OnOK()
     m_pageLatency.GetData(d);
 
     g_data.SaveConfig();
+    g_data.ReformatTaskbarTexts();
 
     CDialog::OnOK();
 }

@@ -5,6 +5,10 @@
 #include "ModernUI.h"
 #include <vector>
 
+// 异步回调自定义消息
+#define WM_TEST_PROXY_DONE   (WM_USER + 110)
+#define WM_TEST_LATENCY_DONE (WM_USER + 111)
+
 // ────────────────────────────────────────────────────────────────────────
 // Tab 0: 常规 / 网络 & 代理 设置 (现代圆角卡片)
 // ────────────────────────────────────────────────────────────────────────
@@ -26,7 +30,9 @@ protected:
     afx_msg void OnBnClickedUseProxy();
     afx_msg void OnBnClickedRefreshNow();
     afx_msg void OnBnClickedTestProxy();
+    afx_msg void OnCbnSelchangeDisplayFormat();
     afx_msg void OnTimer(UINT_PTR nIDEvent);
+    afx_msg LRESULT OnTestProxyDone(WPARAM wParam, LPARAM lParam);
     DECLARE_MESSAGE_MAP()
 
 private:
@@ -45,7 +51,7 @@ private:
 };
 
 // ────────────────────────────────────────────────────────────────────────
-// Tab 1: 延迟目标设置（现代卡片 + Explorer 风格列表）
+// Tab 1: 延迟目标设置（现代卡片 + 自适应 Explorer 风格列表）
 // ────────────────────────────────────────────────────────────────────────
 class CTabLatencyDlg : public CModernSubDlg
 {
@@ -55,6 +61,7 @@ public:
     enum { IDD = IDD_TAB_LATENCY_LIST };
 
     void GetData(SettingData& out) const;
+    void AdjustColumnWidths();
 
 protected:
     virtual BOOL OnInitDialog() override;
@@ -69,6 +76,8 @@ protected:
     afx_msg void OnBnClickedTest();
     afx_msg void OnNMClickList(NMHDR* pNMHDR, LRESULT* pResult);
     afx_msg void OnNMDblclkList(NMHDR* pNMHDR, LRESULT* pResult);
+    afx_msg void OnSize(UINT nType, int cx, int cy);
+    afx_msg LRESULT OnTestLatencyDone(WPARAM wParam, LPARAM lParam);
     DECLARE_MESSAGE_MAP()
 
 private:

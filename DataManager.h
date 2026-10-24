@@ -77,6 +77,8 @@ public:
     void _ThreadProc();             // 内部供线程调用
     std::wstring GetLastUpdateStatusString() const;
     void SwapBuffers();             // 将后台缓冲数据同步到主线程使用
+    void ReformatTaskbarTexts();    // 立即根据最新配置重新生成任务栏文本（免等待网络直接生效）
+    int  GetRefreshCountdownSec() const; // 获取距离下次自动刷新的倒计时秒数
 
     // 格式化输出任务栏监控文本
     std::wstring FormatItemText(bool is_proxy) const;

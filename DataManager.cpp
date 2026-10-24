@@ -1,4 +1,4 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "DataManager.h"
 #include <winhttp.h>
 #include <stdarg.h>
@@ -925,6 +925,26 @@ void CDataManager::_ThreadProc()
 {
     UpdateIpInfoNow();
     m_is_updating = false;
+}
+
+void CDataManager::ReformatTaskbarTexts()
+{
+    std::lock_guard<std::mutex> lock(m_swap_mutex);
+    m_direct_item_text = FormatItemTextHelper(false, m_place_direct, m_public_ip_direct, m_isp_direct, m_latency_results, m_setting_data.display_format);
+    m_proxy_item_text  = FormatItemTextHelper(true,  m_place_proxy,  m_public_ip_proxy,  m_isp_proxy,  m_latency_results, m_setting_data.display_format);
+    m_direct_item_text_bg = m_direct_item_text;
+    m_proxy_item_text_bg  = m_proxy_item_text;
+}
+
+int CDataManager::GetRefreshCountdownSec() const
+{
+    if (m_is_updating) return 0;
+    if (m_last_ip_update_tick == 0) return 0;
+    ULONGLONG now = GetTickCount64();
+    ULONGLONG interval = (ULONGLONG)m_setting_data.refresh_interval_sec * 1000ULL;
+    if (now >= m_last_ip_update_tick + interval) return 0;
+    ULONGLONG remain = (m_last_ip_update_tick + interval) - now;
+    return (int)((remain + 999ULL) / 1000ULL);
 }
 
 void CDataManager::UpdateIpInfoIfNeeded()
