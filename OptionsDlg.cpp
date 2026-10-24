@@ -441,17 +441,103 @@ void CTabStatusDlg::UpdateStatusView()
         m_stcProxyThreat.SetWindowTextW(L"网络类型: 未使用代理\n纯净度: -");
     }
 
-    // 诊断日志
-    std::wstring tip = g_data.m_tooltip;
-    std::wstring converted;
-    converted.reserve(tip.size() + 32);
-    for (size_t i = 0; i < tip.size(); ++i)
+    // 完整展示框：将所有可显示信息完整呈现，所见即所拷
+    std::wstring fullText;
+
+    // 1. 直连网络信息
+    if (!g_data.m_public_ip_direct.empty() || !g_data.m_place_direct.empty())
     {
-        if (tip[i] == L'\n' && (i == 0 || tip[i - 1] != L'\r'))
-            converted += L'\r';
-        converted += tip[i];
+        fullText += L"直: " + (g_data.m_public_ip_direct.empty() ? L"-" : g_data.m_public_ip_direct);
+        if (!g_data.m_place_direct.empty()) fullText += L"  [" + g_data.m_place_direct + L"]";
+        if (!g_data.m_isp_direct.empty())   fullText += L"  " + g_data.m_isp_direct;
+        fullText += L"\r\n    ";
+        {
+            std::wstring type;
+            const auto& t = g_data.m_threat_direct;
+            if (t.is_datacenter) { if (!type.empty()) type += L" + "; type += L"IDC机房"; }
+            if (t.is_mobile)     { if (!type.empty()) type += L" + "; type += L"移动网络"; }
+            if (t.is_vpn)        { if (!type.empty()) type += L" + "; type += L"VPN"; }
+            if (t.is_proxy)      { if (!type.empty()) type += L" + "; type += L"代理"; }
+            if (t.is_tor)        { if (!type.empty()) type += L" + "; type += L"Tor"; }
+            if (type.empty()) type = L"普通宽带";
+            fullText += L"类型: " + type + L" | 状态: " + (t.is_abuser ? L"恶意/黑名单" : L"纯净");
+            if (!t.risk_score.empty()) fullText += L" (欺诈分: " + t.risk_score + L")";
+        }
+        fullText += L"\r\n";
     }
-    m_edtStatus.SetWindowTextW(converted.empty() ? L"（尚无数据，请等待后台刷新完成）" : converted.c_str());
+
+    // 2. 代理出口信息
+    if (g_data.m_setting_data.use_proxy)
+    {
+        if (!g_data.m_public_ip_proxy.empty() || !g_data.m_place_proxy.empty())
+        {
+            fullText += L"代: " + (g_data.m_public_ip_proxy.empty() ? L"-" : g_data.m_public_ip_proxy);
+            if (!g_data.m_place_proxy.empty()) fullText += L"  [" + g_data.m_place_proxy + L"]";
+            if (!g_data.m_isp_proxy.empty())   fullText += L"  " + g_data.m_isp_proxy;
+            fullText += L"\r\n    ";
+            {
+                std::wstring type;
+                const auto& t = g_data.m_threat_proxy;
+                if (t.is_datacenter) { if (!type.empty()) type += L" + "; type += L"IDC机房"; }
+                if (t.is_mobile)     { if (!type.empty()) type += L" + "; type += L"移动网络"; }
+                if (t.is_vpn)        { if (!type.empty()) type += L" + "; type += L"VPN"; }
+                if (t.is_proxy)      { if (!type.empty()) type += L" + "; type += L"代理"; }
+                if (t.is_tor)        { if (!type.empty()) type += L" + "; type += L"Tor"; }
+                if (type.empty()) type = L"普通宽带";
+                fullText += L"类型: " + type + L" | 状态: " + (t.is_abuser ? L"恶意/黑名单" : L"纯净");
+                if (!t.risk_score.empty()) fullText += L" (欺诈分: " + t.risk_score + L")";
+            }
+            fullText += L"\r\n";
+        }
+    }
+    else
+    {
+        fullText += L"代: （未启用代理）\r\n";
+    }
+
+    // 3. 延迟测速
+    if (!g_data.m_latency_results.empty())
+    {
+        fullText += L"延迟:\r\n直: ";
+        bool firstD = true;
+        for (const auto& r : g_data.m_latency_results)
+        {
+            if (r.direct_ms >= 0)
+            {
+                if (!firstD) fullText += L" | ";
+                fullText += r.name + L" - " + std::to_wstring((int)(r.direct_ms + 0.5)) + L"ms";
+                firstD = false;
+            }
+        }
+        if (firstD) fullText += L"-";
+        fullText += L"\r\n代: ";
+        if (g_data.m_setting_data.use_proxy)
+        {
+            bool firstP = true;
+            for (const auto& r : g_data.m_latency_results)
+            {
+                if (r.proxy_ms >= 0)
+                {
+                    if (!firstP) fullText += L" | ";
+                    fullText += r.name + L" - " + std::to_wstring((int)(r.proxy_ms + 0.5)) + L"ms";
+                    firstP = false;
+                }
+            }
+            if (firstP) fullText += L"-";
+        }
+        else
+        {
+            fullText += L"-";
+        }
+        fullText += L"\r\n";
+    }
+
+    // 4. 更新时间
+    std::wstring lastUpdate = g_data.GetLastUpdateStatusString();
+    if (!lastUpdate.empty())
+        fullText += lastUpdate;
+
+    m_edtStatus.SetWindowTextW(fullText.empty() ? L"（尚无数据，请等待后台刷新完成）" : fullText.c_str());
 }
 
 void CTabStatusDlg::CopyToClipboard(const std::wstring& text)
@@ -474,12 +560,27 @@ void CTabStatusDlg::CopyToClipboard(const std::wstring& text)
 
 void CTabStatusDlg::OnBnClickedCopyDirect()
 {
-    CopyToClipboard(g_data.m_public_ip_direct);
+    std::wstring info;
+    info += L"直: " + (g_data.m_public_ip_direct.empty() ? L"-" : g_data.m_public_ip_direct);
+    if (!g_data.m_place_direct.empty()) info += L"  [" + g_data.m_place_direct + L"]";
+    if (!g_data.m_isp_direct.empty())   info += L"  " + g_data.m_isp_direct;
+    CopyToClipboard(info);
 }
 
 void CTabStatusDlg::OnBnClickedCopyProxy()
 {
-    CopyToClipboard(g_data.m_public_ip_proxy);
+    std::wstring info;
+    if (g_data.m_setting_data.use_proxy)
+    {
+        info += L"代: " + (g_data.m_public_ip_proxy.empty() ? L"-" : g_data.m_public_ip_proxy);
+        if (!g_data.m_place_proxy.empty()) info += L"  [" + g_data.m_place_proxy + L"]";
+        if (!g_data.m_isp_proxy.empty())   info += L"  " + g_data.m_isp_proxy;
+    }
+    else
+    {
+        info = L"代: （未启用代理）";
+    }
+    CopyToClipboard(info);
 }
 
 void CTabStatusDlg::OnBnClickedCopyAll()

@@ -177,6 +177,52 @@ static std::wstring GetJsonObjectValue(const std::wstring& json, const wchar_t* 
     return json.substr(pos, end - pos);
 }
 
+static std::vector<std::wstring> GetJsonArrayStrings(const std::wstring& json, const wchar_t* key)
+{
+    std::vector<std::wstring> result;
+    std::wstring keyQuoted = L"\"" + std::wstring(key) + L"\"";
+    size_t kpos = json.find(keyQuoted);
+    if (kpos == std::wstring::npos) return result;
+
+    size_t colon = json.find(L':', kpos + keyQuoted.size());
+    if (colon == std::wstring::npos) return result;
+
+    size_t pos = colon + 1;
+    while (pos < json.size() && iswspace(json[pos])) ++pos;
+    if (pos >= json.size() || json[pos] != L'[') return result;
+
+    size_t end = json.find(L']', pos + 1);
+    if (end == std::wstring::npos) return result;
+
+    size_t cur = pos + 1;
+    while (cur < end)
+    {
+        while (cur < end && json[cur] != L'"') ++cur;
+        if (cur >= end) break;
+        size_t strStart = cur + 1;
+        size_t strEnd = strStart;
+        while (strEnd < end)
+        {
+            if (json[strEnd] == L'"')
+            {
+                size_t slashes = 0;
+                size_t p = strEnd - 1;
+                while (p >= strStart && json[p] == L'\\') { ++slashes; --p; }
+                if (slashes % 2 == 0) break;
+            }
+            ++strEnd;
+        }
+        if (strEnd <= end)
+        {
+            result.push_back(DecodeJsonString(json.substr(strStart, strEnd - strStart)));
+            cur = strEnd + 1;
+        }
+        else break;
+    }
+    return result;
+}
+
+
 // 通过 WinHTTP 进行 GET 请求
 static bool HttpGet(const std::wstring& url, const std::wstring& proxy, bool no_proxy, std::string& out)
 {
@@ -510,7 +556,7 @@ bool CDataManager::FetchIpInfoByUrl(const std::wstring& url, bool use_proxy, std
     std::wstring message = GetJsonStringValue(w, L"message");
     std::wstring ip = GetJsonStringValue(w, L"query"); if (ip.empty()) ip = GetJsonStringValue(w, L"ip");
 
-    std::wstring country, region, city;
+    std::wstring country, region, city, isp;
     {
         std::wstring locObj = GetJsonObjectValue(w, L"location");
         if (!locObj.empty())
@@ -521,17 +567,40 @@ bool CDataManager::FetchIpInfoByUrl(const std::wstring& url, bool use_proxy, std
             if (region.empty()) region = GetJsonStringValue(locObj, L"state");
             city    = GetJsonStringValue(locObj, L"city");
         }
+        else
+        {
+            std::vector<std::wstring> locArray = GetJsonArrayStrings(w, L"location");
+            if (!locArray.empty())
+            {
+                if (locArray.size() > 0 && !locArray[0].empty()) country = locArray[0];
+                if (locArray.size() > 1 && !locArray[1].empty()) region  = locArray[1];
+                if (locArray.size() > 2 && !locArray[2].empty()) city    = locArray[2];
+                if (locArray.size() > 4 && !locArray[4].empty())
+                {
+                    std::wstring rawIsp = locArray[4];
+                    if (rawIsp.find(L"telecom") != std::wstring::npos) isp = L"中国电信";
+                    else if (rawIsp.find(L"unicom") != std::wstring::npos) isp = L"中国联通";
+                    else if (rawIsp.find(L"mobile") != std::wstring::npos) isp = L"中国移动";
+                    else if (rawIsp.find(L"cernet") != std::wstring::npos) isp = L"教育网";
+                    else if (rawIsp.find(L"cstnet") != std::wstring::npos) isp = L"科技网";
+                    else isp = rawIsp;
+                }
+            }
+        }
     }
     if (country.empty()) country = GetJsonStringValue(w, L"country");
     if (country.empty()) country = GetJsonStringValue(w, L"country_name");
+    if (country.empty()) country = GetJsonStringValue(w, L"c");
     if (region.empty())  region  = GetJsonStringValue(w, L"regionName");
     if (region.empty())  region  = GetJsonStringValue(w, L"region");
+    if (region.empty())  region  = GetJsonStringValue(w, L"province");
     if (region.empty())  region  = GetJsonStringValue(w, L"state");
     if (city.empty())    city    = GetJsonStringValue(w, L"city");
 
-    std::wstring isp = GetJsonStringValue(w, L"isp");
+    if (isp.empty()) isp = GetJsonStringValue(w, L"isp");
     if (isp.empty()) isp = GetJsonStringValue(w, L"name");
     if (isp.empty()) isp = GetJsonStringValue(w, L"org");
+    if (isp.empty()) isp = GetJsonStringValue(w, L"operator");
 
     out_threat = IpThreatInfo{};
     out_threat.is_proxy      = GetJsonBoolValue(w, L"is_proxy")      || GetJsonBoolValue(w, L"proxy");
@@ -577,8 +646,10 @@ bool CDataManager::FetchIpInfoByUrl(const std::wstring& url, bool use_proxy, std
     out_ip = ip; out_isp = isp;
     std::wstring place;
     if (!country.empty()) place += country;
-    if (!region.empty())  { if (!place.empty()) place += L" "; place += region; }
-    if (!city.empty() && city != region) { if (!place.empty()) place += L" "; place += city; }
+    if (!region.empty() && region != country)  { if (!place.empty()) place += L" "; place += region; }
+    if (!city.empty() && city != region && city != country) { if (!place.empty()) place += L" "; place += city; }
+    if (place.empty()) place = GetJsonStringValue(w, L"addr");
+    if (place.empty()) place = GetJsonStringValue(w, L"address");
     out_place = place;
     return true;
 }
