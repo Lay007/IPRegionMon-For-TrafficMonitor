@@ -21,8 +21,7 @@ const wchar_t* CCustomDrawItem::GetItemLableText() const
 const wchar_t* CCustomDrawItem::GetItemValueText() const
 {
     AFX_MANAGE_STATE(AfxGetStaticModuleState());
-    m_cached_value = g_data.FormatItemText(m_is_proxy);
-    return m_cached_value.c_str();
+    return g_data.GetFormattedItemText(m_is_proxy);
 }
 
 const wchar_t* CCustomDrawItem::GetItemValueSampleText() const

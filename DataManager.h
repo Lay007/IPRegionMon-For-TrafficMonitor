@@ -80,6 +80,7 @@ public:
 
     // 格式化输出任务栏监控文本
     std::wstring FormatItemText(bool is_proxy) const;
+    const wchar_t* GetFormattedItemText(bool is_proxy) const;
 
     // 单独测试代理服务器连通性（同步执行，应在后台调用）
     bool TestProxyConnectivity(const std::wstring& proxy, std::wstring& out_message, double& out_ms);
@@ -116,6 +117,8 @@ public:
 
     // 鼠标提示（完整地区信息）
     std::wstring m_tooltip;
+    std::wstring m_direct_item_text;
+    std::wstring m_proxy_item_text;
 
 private:
     static CDataManager m_instance;
@@ -148,6 +151,8 @@ private:
     std::vector<LatencyResult> m_latency_results_bg;
     std::wstring m_tooltip_bg;
     std::wstring m_ip_region_display_bg;
+    std::wstring m_direct_item_text_bg;
+    std::wstring m_proxy_item_text_bg;
 
     std::atomic<bool> m_is_updating{ false };
     std::atomic<bool> m_has_new_data{ false };

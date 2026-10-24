@@ -235,7 +235,7 @@ static bool HttpGet(const std::wstring& url, const std::wstring& proxy, bool no_
         return false;
     bool https = (uc.nScheme == INTERNET_SCHEME_HTTPS);
     std::wstring sHost(uc.lpszHostName, uc.dwHostNameLength);
-    std::wstring sPath(uc.lpszUrlPath, uc.dwUrlPathLength);
+    std::wstring sPath = (uc.dwUrlPathLength > 0) ? std::wstring(uc.lpszUrlPath, uc.dwUrlPathLength) : L"/";
 
     DWORD accessType = WINHTTP_ACCESS_TYPE_DEFAULT_PROXY;
     const wchar_t* pProxy = WINHTTP_NO_PROXY_NAME;
@@ -305,7 +305,7 @@ bool CDataManager::MeasureLatencyMs(const std::wstring& url_or_host, const std::
         return false;
     bool https = (uc.nScheme == INTERNET_SCHEME_HTTPS);
     std::wstring sHost(uc.lpszHostName, uc.dwHostNameLength);
-    std::wstring sPath(uc.lpszUrlPath, uc.dwUrlPathLength);
+    std::wstring sPath = (uc.dwUrlPathLength > 0) ? std::wstring(uc.lpszUrlPath, uc.dwUrlPathLength) : L"/";
 
     DWORD accessType = WINHTTP_ACCESS_TYPE_DEFAULT_PROXY;
     const wchar_t* pProxy = WINHTTP_NO_PROXY_NAME;
@@ -338,6 +338,13 @@ bool CDataManager::MeasureLatencyMs(const std::wstring& url_or_host, const std::
     DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
     HINTERNET hr = WinHttpOpenRequest(hc, L"HEAD", sPath.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
     if (!hr) { WinHttpCloseHandle(hc); WinHttpCloseHandle(hs); return false; }
+
+    if (https)
+    {
+        DWORD secFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA | SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
+                         SECURITY_FLAG_IGNORE_CERT_CN_INVALID | SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
+        WinHttpSetOption(hr, WINHTTP_OPTION_SECURITY_FLAGS, &secFlags, sizeof(secFlags));
+    }
 
     ULONGLONG t0 = GetTickCount64();
     BOOL ok = WinHttpSendRequest(hr, L"Connection: close\r\n", -1L, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
@@ -681,6 +688,7 @@ static void AppendWrappedList(std::wstring& out, const std::vector<std::pair<std
     }
 }
 
+static std::wstring FormatItemTextHelper(bool is_proxy, const std::wstring& place, const std::wstring& ip, const std::wstring& isp, const std::vector<CDataManager::LatencyResult>& lats, int fmt);
 void CDataManager::UpdateIpInfoNow()
 {
     static std::atomic<bool> inside_update{ false };
@@ -733,9 +741,19 @@ void CDataManager::UpdateIpInfoNow()
         LatencyResult r;
         r.name = tgt.name.empty() ? tgt.url : tgt.name;
         r.url  = tgt.url;
-        MeasureLatencyMs(tgt.url, L"", true, r.direct_ms);
+        try {
+            MeasureLatencyMs(tgt.url, L"", true, r.direct_ms);
+        } catch (...) {
+            r.direct_ms = -1;
+        }
         if (use_proxy)
-            MeasureLatencyMs(tgt.url, proxy_addr, false, r.proxy_ms);
+        {
+            try {
+                MeasureLatencyMs(tgt.url, proxy_addr, false, r.proxy_ms);
+            } catch (...) {
+                r.proxy_ms = -1;
+            }
+        }
         l_latency.push_back(r);
     }
     LogInfo(L"UpdateIpInfoNow: Latency tests done.");
@@ -827,6 +845,8 @@ void CDataManager::UpdateIpInfoNow()
         m_latency_results_bg = l_latency;
         m_ip_region_display_bg = l_ip_region_display;
         m_tooltip_bg = l_tooltip;
+        m_direct_item_text_bg = FormatItemTextHelper(false, l_place_direct, l_public_ip_direct, l_isp_direct, l_latency, m_setting_data.display_format);
+        m_proxy_item_text_bg  = FormatItemTextHelper(true,  l_place_proxy,  l_public_ip_proxy,  l_isp_proxy,  l_latency, m_setting_data.display_format);
 
         m_has_new_data = true;
     }
@@ -835,14 +855,8 @@ void CDataManager::UpdateIpInfoNow()
     inside_update = false;
 }
 
-std::wstring CDataManager::FormatItemText(bool is_proxy) const
+static std::wstring FormatItemTextHelper(bool is_proxy, const std::wstring& place, const std::wstring& ip, const std::wstring& isp, const std::vector<CDataManager::LatencyResult>& lats, int fmt)
 {
-    const std::wstring& place = is_proxy ? m_place_proxy : m_place_direct;
-    const std::wstring& ip    = is_proxy ? m_public_ip_proxy : m_public_ip_direct;
-    const std::wstring& isp   = is_proxy ? m_isp_proxy : m_isp_direct;
-
-    int fmt = m_setting_data.display_format;
-
     switch (fmt)
     {
     case DF_REGION_ONLY:
@@ -856,8 +870,7 @@ std::wstring CDataManager::FormatItemText(bool is_proxy) const
     case DF_REGION_AND_LATENCY:
     {
         std::wstring out = place.empty() ? ip : place;
-        // 获取第一个有效测速
-        for (const auto& r : m_latency_results)
+        for (const auto& r : lats)
         {
             double ms = is_proxy ? r.proxy_ms : r.direct_ms;
             if (ms >= 0)
@@ -890,6 +903,19 @@ std::wstring CDataManager::FormatItemText(bool is_proxy) const
     }
 }
 
+std::wstring CDataManager::FormatItemText(bool is_proxy) const
+{
+    const std::wstring& s = is_proxy ? m_proxy_item_text : m_direct_item_text;
+    if (!s.empty()) return s;
+    return FormatItemTextHelper(is_proxy, is_proxy ? m_place_proxy : m_place_direct, is_proxy ? m_public_ip_proxy : m_public_ip_direct, is_proxy ? m_isp_proxy : m_isp_direct, m_latency_results, m_setting_data.display_format);
+}
+
+const wchar_t* CDataManager::GetFormattedItemText(bool is_proxy) const
+{
+    const std::wstring& s = is_proxy ? m_proxy_item_text : m_direct_item_text;
+    return s.empty() ? L"..." : s.c_str();
+}
+
 bool CDataManager::IsUpdating() const
 {
     return m_is_updating;
@@ -918,7 +944,11 @@ void CDataManager::ForceUpdateAsync()
     LogInfo(L"ForceUpdateAsync: Spawning background update thread.");
     m_is_updating = true;
     std::thread([this]() {
-        UpdateIpInfoNow();
+        try {
+            UpdateIpInfoNow();
+        } catch (...) {
+            LogInfo(L"ForceUpdateAsync: Unhandled exception caught in update thread.");
+        }
         m_is_updating = false;
     }).detach();
 }
@@ -947,6 +977,8 @@ void CDataManager::SwapBuffers()
     m_ip_region_display = m_ip_region_display_bg;
     m_threat_direct = m_threat_direct_bg;
     m_threat_proxy = m_threat_proxy_bg;
+    m_direct_item_text = m_direct_item_text_bg;
+    m_proxy_item_text = m_proxy_item_text_bg;
 
     m_has_new_data = false;
 }
