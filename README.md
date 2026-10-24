@@ -1,4 +1,4 @@
-﻿# IPRegionMon-For-TrafficMonitor
+# IPRegionMon-For-TrafficMonitor
 
 [简体中文](#简体中文) | [English](#english)
 
@@ -7,111 +7,134 @@
 <a name="简体中文"></a>
 # IPRegionMon-For-TrafficMonitor (简体中文)
 
-一个用于 TrafficMonitor 的插件，显示当前公网 IP 与地区信息，支持代理出口对比与自定义测延迟目标。
+一个专为 TrafficMonitor 设计的 IP 地区与网络监控插件，支持直连与代理出口双链路对比、纯净度检测、自定义延迟测速目标及 Windows 11 原生自绘现代卡片设置界面。
 
 - 插件主类：`CIPRegionMon`
-- 输出项目：
-  - 直：直连出口 IP/地区
-  - 代：代理出口 IP/地区（可选）
+- 输出监控项：
+  - 直：直连出口 IP / 地区
+  - 代：代理出口 IP / 地区（可选）
 - 支持版本：TrafficMonitor 插件 API v2+（兼容更高版本）
+- 依赖要求：零外部第三方库依赖（仅使用 Windows 原生 WinHTTP、GDI+、DWM 及 MFC）
 
-## 预览
-- 任务栏展示：
-  
-  <img width="600" height="57" alt="image" src="https://github.com/user-attachments/assets/50a8f5fc-4a52-4051-8378-bc267fb93dec" />
+## 界面预览
 
-- 设置对话框：
-  
-  ![Settings Dialog](images/settings_dialog.png)
+### 任务栏展示效果
+<img width="600" height="57" alt="任务栏展示" src="https://github.com/user-attachments/assets/50a8f5fc-4a52-4051-8378-bc267fb93dec" />
 
-- 悬浮提示：
-  
-  <img width="530" height="358" alt="image" src="https://github.com/user-attachments/assets/448c05ab-a06b-4a1d-ae99-ac88b2728fb6" />
+### 设置对话框（Windows 11 原生自绘现代卡片风格）
+
+- **常规 / 网络 & 代理设置**
+  ![常规与代理设置](images/settings_tab0.png)
+
+- **测速目标与延迟管理（表格宽度自适应）**
+  ![延迟目标设置](images/settings_tab1.png)
+
+- **网络状况与安全报告（格式对齐与一键复制）**
+  ![当前状态与安全报告](images/settings_tab2.png)
+
+### 悬浮提示（Tooltip）
+<img width="530" height="358" alt="悬浮提示" src="https://github.com/user-attachments/assets/448c05ab-a06b-4a1d-ae99-ac88b2728fb6" />
+
+---
 
 ## 功能特性
-- **公网 IP 信息**：分别获取直连与代理出口的 IP、国家/地区/城市、ISP。
-- **代理支持**：勾选“使用代理”并填写 `HTTP` 代理地址（如 `127.0.0.1:7890`）。
-- **自定义测延迟目标（最多 3 个）**：名称 + URL/域名，支持同时测直连/代理延迟。
-- **刷新间隔**：默认 300 秒，可配置。
-- **悬浮提示美化**：
-  - IP/地区信息分行显示。
-  - 延迟块显示为：
-    - `延迟:`
-    - `直: 名称 - xxms | 名称 - xxms | ...`
-    - `代: 名称 - xxms | 名称 - xxms | ...`
-- **全新选项界面**：采用紧凑的 3-Tab 标签页布局（常规/网络、延迟目标、当前状态），底层移除 ListCtrl 彻底解决 TrafficMonitor 死锁卡死问题。
-- **纯净度检测**：精准识别 IP 类型（普通宽带、IDC机房、代理、VPN、Tor），防止节点欺骗。
-- **全异步无感刷新**：彻底重构网络请求逻辑为后台线程执行，双缓冲无锁刷新，绝对不卡顿主界面。
-- **配置持久化**：INI 文件保存，中文名称使用 `#u8:HEX` 编码，彻底避免中文逐次截断问题。
 
-## 安装
-1. 构建 Release 版本（推荐 x64）。
-2. 将生成的 `IPRegionMon.dll` 复制到 TrafficMonitor 的 `plugins` 目录。
-3. 重启 TrafficMonitor，在“插件管理”里启用并选择显示项目。
+- **Windows 11 原生现代卡片 UI**：
+  - 采用 Fluent 视觉调色板与自绘纯白圆角卡片布局（Card），界面呼吸感与留白比例大幅提升。
+  - 顶栏采用自绘分段胶囊导航栏（`CModernTabBar`），支持鼠标悬停过渡与高亮指示线。
+  - 按钮采用自绘圆角控件（`CModernButton`），主操作提供 Win11 强调蓝视觉反馈。
+- **任务栏格式即时切换**：
+  - 调整任务栏显示格式下拉选项时，系统即刻触发内存数据重格式化并更新任务栏，无需等待网络请求。
+- **自动刷新动态倒计时**：
+  - 常规设置面板状态行提供动态跳动的秒级倒计时，实时掌握下一次自动探测的时间点。
+- **表格列宽自动伸缩**：
+  - 延迟测速列表应用资源管理器主题（Explorer），列宽按比例自适应卡片实际宽度，在高分屏 DPI 下无横向滚动条。
+- **链路独立探测与代理分流支持**：
+  - 支持分别获取直连与代理出口的 IP、国家/地区/城市、ISP 运营商。
+  - 代理出口默认使用国际化 API 接口（如 ip-api.com），避免由于分流规则导致出口 IP 识别错误。
+- **纯净度与网络类型识别**：
+  - 识别网络类型（普通宽带、蜂窝移动网络、数据中心/机房机房等）及安全状态（纯净原生、代理、VPN、Tor、恶意黑名单）。
+- **动态延迟测速**：
+  - 支持自由增删排测速目标，并可对选中目标进行单项即时测速。
+- **全异步无感刷新**：
+  - 网络探测全流程在后台线程池并发执行，采用双缓冲无锁更新，杜绝主程序 UI 冻结。
+- **配置持久化安全**：
+  - INI 文件保存，Unicode 与中文名称使用 `#u8:HEX` 十六进制编码，彻底规避本地代码页截断问题。
+- **零外部依赖**：
+  - 完全由 Windows 系统内置 API 构建，不引入额外的第三方 DLL 动态链接库。
 
-> 也可直接拷贝现成的 `IPRegionMon.dll` 到 `plugins` 目录，无需其他依赖。
+---
+
+## 安装方法
+
+1. 在 [Releases](https://github.com/AHLLX/IPRegionMon-For-TrafficMonitor/releases) 页面下载对应架构的发布包（通常推荐 x64）。
+2. 将压缩包内的 `IPRegionMon.dll` 解压至 TrafficMonitor 根目录下的 `plugins` 文件夹中。
+3. 启动或重启 TrafficMonitor，在“插件管理”中勾选启用并配置要显示的项目。
+
+---
 
 ## 使用说明
-- 在插件选项（“IP 监控设置”）中：
-  - **代理**：勾选“使用代理”，填入 `127.0.0.1:7890` 之类的 HTTP 代理地址。
-  - **刷新/延迟**：设置刷新间隔；添加测延迟目标名称与地址（最多 3 个）。
-  - 点击“立即刷新”开始获取，执行期间按钮会显示“正在刷新…”。
 
-## 注意事项
-- 首次加载插件后会在后台刷新一次数据。
-- 代理要求 HTTP 代理格式（`host:port`），直/代延迟会分开测量与展示。
-- 插件会访问公共 IP API（默认 ip-api.com）与自定义测延迟目标，请确保网络可达。
-- **兼容性**：Windows 10/11；仅依赖 WinHTTP（系统组件）。
-- **隐私**：插件不收集任何用户隐私信息。
+在任务栏监控项上右键选择“选项...”打开设置面板：
+- **常规 / 网络**：
+  - 设置任务栏显示格式与刷新间隔秒数。
+  - 勾选“启用代理服务器”并填入 HTTP/SOCKS 代理地址（例如 `127.0.0.1:7890`）。
+  - 点击“测试代理连通性”可在后台发起握手并回传耗时结果。
+  - 点击“立即刷新”可立即应用当前所有改动并触发后台探测。
+- **延迟目标**：
+  - 选中列表项可载入并更新名称或目标 URL/域名。
+  - 支持“测速选中目标”验证单点连通性。
+- **当前状态与安全**：
+  - 查看直连与代理链路的完整安全报告。
+  - 支持单项复制直连 IP、代理 IP，或一键“复制全部文本”。
 
-## 二次开发（VS2022/VS2026 + MFC）
-- **先决条件**：
-  - Windows 10/11，Visual Studio 2022 或 2026。
-  - 安装“使用 C++ 的桌面开发”工作负载，并勾选“适用于 x64 的 MFC”以及“最新 MSVC 的 ATL/MFC”。
-  - Windows 10/11 SDK、MSVC v143/v145 工具集。
-- **打开工程**：
-  - 直接打开项目 `IPRegionMon.vcxproj`（推荐）。
-  - 项目已包含自适应的 `include/PluginInterface.h`，支持克隆后开箱即用。
-- **构建与输出**：
-  - 选择 `Release | x64` 配置，生成项目。
-  - 将生成的 `IPRegionMon.dll` 复制到 TrafficMonitor 可执行文件同级的 `plugins` 目录。
-  - 可在项目“生成事件 > 生成后事件”添加复制命令：
-    - `xcopy /y "$(TargetPath)" "$(SolutionDir)plugins\"`
-- **调试插件**：
-  - 在项目 `IPRegionMon` 属性 > 调试：
-    - 启动外部程序：选择 `TrafficMonitor.exe`。
-    - 工作目录：`TrafficMonitor.exe` 所在目录。
-  - 按 F5 启动，主程序会自动加载插件，打断点即可调试。
-- **入口/关键文件**：
-  - 插件入口：`IPRegionMon.h/cpp`（类 `CIPRegionMon`，导出 `TMPluginGetInstance`）。
-  - 设置对话框：`OptionsDlg.*`
-  - 数据与配置：`DataManager.*`
-  - 任务栏显示项：`CustomDrawItem.*`
-  - 资源：`IPRegionMon.rc`、`resource.h`
+---
 
-## 目录结构（详细）
+## 二次开发与编译
+
+- **开发环境要求**：
+  - Windows 10 / 11 操作系统。
+  - Visual Studio 2022 或 Visual Studio 2026（MSVC 工具集 `v143` 或 `v145`）。
+  - 安装“使用 C++ 的桌面开发”工作负载，并勾选“C++ MFC for x64/x86”。
+  - Windows SDK 10.0.26100.0 或更高版本。
+- **编译步骤**：
+  1. 直接使用 Visual Studio 打开根目录下的 `IPRegionMon.vcxproj`。
+  2. 选择 `Release | x64` 或 `Release | Win32` 配置进行生成。
+  3. 亦可通过命令行执行 MSBuild：
+     ```powershell
+     & "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\MSBuild.exe" IPRegionMon.vcxproj /p:Configuration=Release /p:Platform=x64
+     ```
+  4. 生成产物将位于 `Bin\x64\Release\plugins\IPRegionMon.dll`。
+
+---
+
+## 代码目录结构
+
 ```
 ./
 ├─ .agents/
-│  └─ AGENTS.md                         # AI 助手开发规则文档
+│  └─ AGENTS.md                         # 开发规范与规则说明
 ├─ include/
-│  └─ PluginInterface.h                 # TrafficMonitor 插件接口定义文件
-├─ CustomDrawItem.cpp / CustomDrawItem.h
-├─ DataManager.cpp / DataManager.h
-├─ IPRegionMon.cpp / IPRegionMon.h
-├─ IPRegionMon.rc
-├─ OptionsDlg.cpp / OptionsDlg.h
-├─ IPRegionMon.vcxproj / .filters / .user
-├─ README.md
-├─ framework.h
-├─ pch.cpp / pch.h
-└─ resource.h
+│  └─ PluginInterface.h                 # TrafficMonitor 插件原生接口头文件
+├─ images/                              # 说明文档真实界面截图
+│  ├─ settings_dialog.png
+│  ├─ settings_tab0.png
+│  ├─ settings_tab1.png
+│  └─ settings_tab2.png
+├─ CustomDrawItem.cpp / CustomDrawItem.h # 任务栏自绘与展示逻辑
+├─ DataManager.cpp / DataManager.h       # 数据缓存、配置管理、异步网络探测
+├─ ModernUI.cpp / ModernUI.h             # Win11 Fluent 自绘卡片、导航条与按钮控件
+├─ IPRegionMon.cpp / IPRegionMon.h       # 插件生命周期导出类
+├─ OptionsDlg.cpp / OptionsDlg.h         # 现代卡片设置对话框及各子页面实现
+├─ IPRegionMon.rc / resource.h           # 中英文资源脚本与控件 ID
+├─ IPRegionMon.vcxproj                   # Visual Studio 2026/2022 工程文件
+└─ README.md
 ```
 
-<img width="430" height="589" alt="image" src="https://github.com/user-attachments/assets/56df8284-bd80-46bd-a9e1-f27405ef3640" />
+---
 
 ## 许可证
-- 本插件以 MIT 协议发布。作者：HiTech_NinJa。
+- 本插件基于 MIT 协议开源。作者：HiTech_NinJa & 贡献者。
 
 ---
 
@@ -120,108 +143,66 @@
 
 [Back to Top / 返回顶部](#简体中文)
 
-A plugin for TrafficMonitor to display current public IP and location information. Supports comparing proxy exit IP and custom latency testing targets.
+A modern IP region and network latency monitoring plugin designed for TrafficMonitor. Supports dual-link direct and proxy egress comparison, IP purity detection, customizable latency targets, and a native Windows 11 Fluent card-styled options dialog.
 
-- Main plugin class: `CIPRegionMon`
-- Output items:
-  - Direct: Direct exit IP/location
-  - Proxy: Proxy exit IP/location (optional)
-- Supported versions: TrafficMonitor Plugin API v2+ (compatible with higher versions)
+- Main Plugin Class: `CIPRegionMon`
+- Output Items:
+  - Direct: Direct exit IP / Location
+  - Proxy: Proxy exit IP / Location (Optional)
+- Supported Versions: TrafficMonitor Plugin API v2+
+- Dependencies: Zero third-party dependencies (built exclusively on WinHTTP, GDI+, DWM, and MFC)
 
 ## Preview
-- Taskbar View:
-  
-  <img width="600" height="57" alt="image" src="https://github.com/user-attachments/assets/50a8f5fc-4a52-4051-8378-bc267fb93dec" />
 
-- Settings Dialog:
-  
-  ![Settings Dialog](images/settings_dialog.png)
+### Taskbar Display
+<img width="600" height="57" alt="Taskbar View" src="https://github.com/user-attachments/assets/50a8f5fc-4a52-4051-8378-bc267fb93dec" />
 
-- Tooltip Info:
-  
-  <img width="530" height="358" alt="image" src="https://github.com/user-attachments/assets/448c05ab-a06b-4a1d-ae99-ac88b2728fb6" />
+### Settings Dialog (Windows 11 Native Custom-Drawn Card Style)
+
+- **General / Network & Proxy**
+  ![General and Proxy Settings](images/settings_tab0.png)
+
+- **Latency Targets (Adaptive Column Widths)**
+  ![Latency Targets](images/settings_tab1.png)
+
+- **Current Status & Diagnostics (Aligned Layout & One-Click Copy)**
+  ![Status and Security Diagnostics](images/settings_tab2.png)
+
+---
 
 ## Features
-- **Public IP Info**: Retrieve public IP, country/region/city, and ISP for both direct and proxy connections separately.
-- **Proxy Support**: Check "Use proxy" and specify HTTP proxy address (e.g. `127.0.0.1:7890`).
-- **Custom Latency Targets (up to 3)**: Name + URL/domain, supports measuring both direct and proxy latency simultaneously.
-- **Refresh Interval**: Default 300 seconds, configurable.
-- **Aesthetic Tooltip Info**:
-  - Displays IP/location info in separate lines.
-  - Latency blocks are displayed as:
-    - `Latency:`
-    - `Direct: Name - xxms | Name - xxms | ...`
-    - `Proxy: Name - xxms | Name - xxms | ...`
-- **New Settings UI**: Uses a compact 3-tab layout (General/Network, Latency Targets, Current Status) and removes ListCtrl to completely fix TrafficMonitor deadlock issues.
-- **IP Purity Detection**: Accurately identifies IP types (Residential, Datacenter, Proxy, VPN, Tor) to prevent node spoofing.
-- **Asynchronous Refresh**: Completely refactored network requests into background threads with double-buffered, lock-free UI updates, ensuring the main interface never freezes.
-- **Persistent Configuration**: Saves to INI files; uses `#u8:HEX` encoding for Chinese characters to fully prevent truncation issues under non-unicode settings.
+
+- **Windows 11 Native Modern Card UI**:
+  - Utilizes Fluent palette and white rounded cards for clean visual hierarchy.
+  - Custom-drawn segmented tab navigation (`CModernTabBar`) with smooth hover feedback and accent indicator lines.
+  - Modern rounded button controls (`CModernButton`) featuring Win11 accent blue branding.
+- **Instant Taskbar Format Updates**:
+  - Changing display format instantly reformats the taskbar display text from memory without waiting for network requests.
+- **Dynamic Refresh Countdown**:
+  - Displays a real-time ticking countdown in the options dialog indicating when the next automatic refresh will occur.
+- **Adaptive Column Widths**:
+  - The latency targets ListView dynamically proportions column widths according to card dimensions with no horizontal scrollbars.
+- **Dual Egress & Proxy Split-Routing Support**:
+  - Concurrently queries public IP, location, and ISP for both direct and proxy links.
+  - Uses internationalized endpoints for foreign queries to prevent split-routing misidentification.
+- **Purity & Network Classification**:
+  - Detects network types (Broadband, Cellular, Datacenter/Hosting) and security flags (Native, Proxy, VPN, Tor, Blacklist).
+- **Asynchronous Non-Blocking Engine**:
+  - Networking operations execute concurrently on worker threads using double buffering to ensure zero GUI freezes.
+- **Safe INI Configuration**:
+  - Preserves Unicode and Chinese characters using `#u8:HEX` encoding to eliminate character corruption across different code pages.
+- **Zero Third-Party Dependencies**:
+  - Fully self-contained implementation with no external runtime DLL requirements.
+
+---
 
 ## Installation
-1. Build the Release version (x64 recommended).
-2. Copy the generated `IPRegionMon.dll` to the `plugins` directory of TrafficMonitor.
-3. Restart TrafficMonitor, enable the plugin in "Plugin Management" and choose the display items.
 
-> You can also directly copy a pre-built `IPRegionMon.dll` to the `plugins` directory without any other dependencies.
+1. Download the latest release from the [Releases](https://github.com/AHLLX/IPRegionMon-For-TrafficMonitor/releases) page (x64 recommended).
+2. Extract `IPRegionMon.dll` into the `plugins` folder inside the TrafficMonitor directory.
+3. Restart TrafficMonitor, enable the plugin in "Plugin Management", and select your desired items.
 
-## Usage
-- In plugin options ("IP Monitor Settings"):
-  - **Proxy**: Check "Use proxy", fill in HTTP proxy address such as `127.0.0.1:7890`.
-  - **Refresh/Latency**: Set refresh interval; add latency target names and addresses (up to 3).
-  - Click "Refresh now" to start fetching. The button will display "Refreshing..." during execution.
-
-## Notes
-- The plugin refreshes data in the background once after it is first loaded.
-- Proxy requires HTTP format (`host:port`). Direct and proxy latency will be measured and displayed separately.
-- The plugin accesses public IP APIs (default ip-api.com) and custom latency targets. Please ensure network connectivity.
-- **Compatibility**: Windows 10/11; relies only on WinHTTP (system component).
-- **Privacy**: The plugin does not collect any user private information.
-
-## Secondary Development (VS2022/VS2026 + MFC)
-- **Prerequisites**:
-  - Windows 10/11, Visual Studio 2022 or 2026.
-  - Install "Desktop development with C++" workload, and check "C++ MFC for x64/x86" and "C++ ATL for x64/x86 (latest MSVC)".
-  - Windows 10/11 SDK, MSVC v143/v145 toolset.
-- **Open Project**:
-  - Open project `IPRegionMon.vcxproj` directly (recommended).
-  - The repository contains a self-contained `include/` directory with `PluginInterface.h`, allowing it to compile directly out-of-the-box.
-- **Build & Output**:
-  - Select `Release | x64` configuration, build the project.
-  - Copy the generated `IPRegionMon.dll` to the `plugins` directory adjacent to TrafficMonitor.exe.
-  - You can add a post-build event command to copy automatically:
-    - `xcopy /y "$(TargetPath)" "$(SolutionDir)plugins\"`
-- **Debug Plugin**:
-  - Under project `IPRegionMon` Properties > Debugging:
-    - Command: select `TrafficMonitor.exe`.
-    - Working directory: directory where `TrafficMonitor.exe` is located.
-  - Press F5 to start. The main application will load the plugin and you can hit breakpoints to debug.
-- **Key Files**:
-  - Plugin Entry: `IPRegionMon.h/cpp` (class `CIPRegionMon`, exporting `TMPluginGetInstance`).
-  - Settings Dialog: `OptionsDlg.*`
-  - Data & Config: `DataManager.*`
-  - Taskbar Display Item: `CustomDrawItem.*`
-  - Resources: `IPRegionMon.rc`, `resource.h`
-
-## Directory Structure (Detailed)
-```
-./
-├─ .agents/
-│  └─ AGENTS.md                         # Agent instruction and project rules
-├─ include/
-│  └─ PluginInterface.h                 # TrafficMonitor plugin interface definition
-├─ CustomDrawItem.cpp / CustomDrawItem.h
-├─ DataManager.cpp / DataManager.h
-├─ IPRegionMon.cpp / IPRegionMon.h
-├─ IPRegionMon.rc
-├─ OptionsDlg.cpp / OptionsDlg.h
-├─ IPRegionMon.vcxproj / .filters / .user
-├─ README.md
-├─ framework.h
-├─ pch.cpp / pch.h
-└─ resource.h
-```
-
-<img width="430" height="589" alt="image" src="https://github.com/user-attachments/assets/56df8284-bd80-46bd-a9e1-f27405ef3640" />
+---
 
 ## License
-- This plugin is released under the MIT License. Author: HiTech_NinJa.
+- Licensed under the MIT License. Author: HiTech_NinJa & Contributors.
