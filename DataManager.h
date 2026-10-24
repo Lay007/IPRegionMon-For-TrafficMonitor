@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <string>
 #include <map>
 #include <vector>
@@ -137,6 +137,9 @@ private:
 
     // 执行一次请求，返回 place、ip、isp、threat
     bool FetchIpInfoByUrl(const std::wstring& url, bool use_proxy, std::wstring& out_place, std::wstring& out_ip, std::wstring& out_isp, IpThreatInfo& out_threat);
+    bool FetchIpInfoWithFallback(const std::wstring& preferredUrl, bool use_proxy, std::wstring& out_place, std::wstring& out_ip, std::wstring& out_isp, IpThreatInfo& out_threat);
+    int m_direct_fail_count{ 0 };
+    int m_proxy_fail_count{ 0 };
 
     // 日志滚动管理
     void RotateLogIfNeeded(const std::wstring& log_path);

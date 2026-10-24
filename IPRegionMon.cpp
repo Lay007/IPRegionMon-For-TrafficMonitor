@@ -38,8 +38,8 @@ const wchar_t* CIPRegionMon::GetInfo(PluginInfoIndex index)
     case TMI_NAME: str.LoadString(IDS_PLUGIN_NAME); return str.GetString();
     case TMI_DESCRIPTION: str.LoadString(IDS_PLUGIN_DESCRIPTION); return str.GetString();
     case TMI_AUTHOR: return L"HiTech_NinJa";
-    case TMI_COPYRIGHT: return L"Copyright (C) by HiTech_NinJa 2025";
-    case TMI_VERSION: return L"1.0";
+    case TMI_COPYRIGHT: return L"Copyright (C) by HiTech_NinJa 2025-2026";
+    case TMI_VERSION: return L"2.1.1";
     case ITMPlugin::TMI_URL: return L"https://github.com/AHLLX/IPRegionMon-For-TrafficMonitor";
     default: return L"";
     }

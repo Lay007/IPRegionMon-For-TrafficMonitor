@@ -253,8 +253,8 @@ static bool HttpGet(const std::wstring& url, const std::wstring& proxy, bool no_
         accessType, pProxy, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!hs) return false;
 
-    // 连接与读取超时设为 3000ms
-    WinHttpSetTimeouts(hs, 3000, 3000, 3000, 3000);
+    // 连接与读取超时设为 4000ms，增强容错
+    WinHttpSetTimeouts(hs, 4000, 4000, 4000, 4000);
 
     DWORD maxRetries = 1;
     WinHttpSetOption(hs, WINHTTP_OPTION_CONNECT_RETRIES, &maxRetries, sizeof(maxRetries));
@@ -268,6 +268,18 @@ static bool HttpGet(const std::wstring& url, const std::wstring& proxy, bool no_
     DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
     HINTERNET hr = WinHttpOpenRequest(hc, L"GET", sPath.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
     if (!hr) { WinHttpCloseHandle(hc); WinHttpCloseHandle(hs); return false; }
+
+    // 自动跟踪重定向与放宽安全证书限制（兼容代理中间人/内网环境）
+    DWORD redirectOption = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
+    WinHttpSetOption(hr, WINHTTP_OPTION_REDIRECT_POLICY, &redirectOption, sizeof(redirectOption));
+    if (https)
+    {
+        DWORD secFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA |
+                         SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
+                         SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
+                         SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
+        WinHttpSetOption(hr, WINHTTP_OPTION_SECURITY_FLAGS, &secFlags, sizeof(secFlags));
+    }
 
     BOOL ok = WinHttpSendRequest(hr, L"Connection: close\r\n", -1L, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
     if (ok) ok = WinHttpReceiveResponse(hr, nullptr);
@@ -390,7 +402,7 @@ bool CDataManager::TestProxyConnectivity(const std::wstring& proxy, std::wstring
 
 CDataManager::CDataManager()
 {
-    const wchar_t* kDomesticApi = L"https://myip.ipip.net/json";
+    const wchar_t* kDomesticApi = L"http://ip-api.com/json/?fields=status,message,country,regionName,city,isp,query,proxy,hosting&lang=zh-CN";
     const wchar_t* kForeignApi  = L"http://ip-api.com/json/?fields=status,message,country,regionName,city,isp,query,proxy,hosting&lang=zh-CN";
     m_setting_data.api_domestic_url = kDomesticApi;
     m_setting_data.api_foreign_url  = kForeignApi;
@@ -491,9 +503,10 @@ void CDataManager::LoadConfig(const std::wstring& config_dir)
     if (!domestic.empty()) m_setting_data.api_domestic_url = domestic; else if (!m_setting_data.api_url.empty()) m_setting_data.api_domestic_url = m_setting_data.api_url;
     if (!foreign.empty())  m_setting_data.api_foreign_url  = foreign;  else if (!m_setting_data.api_url.empty()) m_setting_data.api_foreign_url  = m_setting_data.api_url;
 
-    const wchar_t* kDomesticApi = L"https://myip.ipip.net/json";
+    const wchar_t* kDomesticApi = L"http://ip-api.com/json/?fields=status,message,country,regionName,city,isp,query,proxy,hosting&lang=zh-CN";
     const wchar_t* kForeignApi  = L"http://ip-api.com/json/?fields=status,message,country,regionName,city,isp,query,proxy,hosting&lang=zh-CN";
-    if (m_setting_data.api_domestic_url.empty()) m_setting_data.api_domestic_url = kDomesticApi;
+    if (m_setting_data.api_domestic_url.empty() || m_setting_data.api_domestic_url.find(L"ipip.net") != std::wstring::npos)
+        m_setting_data.api_domestic_url = kDomesticApi;
     if (m_setting_data.api_foreign_url.empty())  m_setting_data.api_foreign_url  = kForeignApi;
 
     if (m_setting_data.refresh_interval_sec < 5) m_setting_data.refresh_interval_sec = 5;
@@ -561,7 +574,10 @@ bool CDataManager::FetchIpInfoByUrl(const std::wstring& url, bool use_proxy, std
     std::wstring w = Utf8ToWide(resp);
     std::wstring status = GetJsonStringValue(w, L"status");
     std::wstring message = GetJsonStringValue(w, L"message");
-    std::wstring ip = GetJsonStringValue(w, L"query"); if (ip.empty()) ip = GetJsonStringValue(w, L"ip");
+    std::wstring ip = GetJsonStringValue(w, L"query");
+    if (ip.empty()) ip = GetJsonStringValue(w, L"ip");
+    if (ip.empty()) ip = GetJsonStringValue(w, L"ip_address");
+    if (ip.empty()) ip = GetJsonStringValue(w, L"origin");
 
     std::wstring country, region, city, isp;
     {
@@ -602,12 +618,23 @@ bool CDataManager::FetchIpInfoByUrl(const std::wstring& url, bool use_proxy, std
     if (region.empty())  region  = GetJsonStringValue(w, L"region");
     if (region.empty())  region  = GetJsonStringValue(w, L"province");
     if (region.empty())  region  = GetJsonStringValue(w, L"state");
+    if (region.empty())  region  = GetJsonStringValue(w, L"pro");
     if (city.empty())    city    = GetJsonStringValue(w, L"city");
 
     if (isp.empty()) isp = GetJsonStringValue(w, L"isp");
+    if (isp.empty()) isp = GetJsonStringValue(w, L"organization");
     if (isp.empty()) isp = GetJsonStringValue(w, L"name");
     if (isp.empty()) isp = GetJsonStringValue(w, L"org");
     if (isp.empty()) isp = GetJsonStringValue(w, L"operator");
+    if (isp.empty())
+    {
+        std::wstring connObj = GetJsonObjectValue(w, L"connection");
+        if (!connObj.empty())
+        {
+            isp = GetJsonStringValue(connObj, L"isp");
+            if (isp.empty()) isp = GetJsonStringValue(connObj, L"org");
+        }
+    }
 
     out_threat = IpThreatInfo{};
     out_threat.is_proxy      = GetJsonBoolValue(w, L"is_proxy")      || GetJsonBoolValue(w, L"proxy");
@@ -661,6 +688,63 @@ bool CDataManager::FetchIpInfoByUrl(const std::wstring& url, bool use_proxy, std
     return true;
 }
 
+bool CDataManager::FetchIpInfoWithFallback(const std::wstring& preferredUrl, bool use_proxy, std::wstring& out_place, std::wstring& out_ip, std::wstring& out_isp, IpThreatInfo& out_threat)
+{
+    std::vector<std::wstring> sources;
+    if (!preferredUrl.empty())
+    {
+        sources.push_back(preferredUrl);
+    }
+
+    // 默认高可用源候选池
+    const wchar_t* fallbackPool[] = {
+        L"http://ip-api.com/json/?fields=status,message,country,regionName,city,isp,query,proxy,hosting&lang=zh-CN",
+        L"https://api.ip.sb/geoip",
+        L"https://ipwho.is/",
+        L"https://ipinfo.io/json"
+    };
+
+    for (const auto* p : fallbackPool)
+    {
+        bool exists = false;
+        for (const auto& s : sources)
+        {
+            if (s == p) { exists = true; break; }
+        }
+        if (!exists) sources.push_back(p);
+    }
+
+    for (size_t i = 0; i < sources.size(); ++i)
+    {
+        const auto& url = sources[i];
+        std::wstring l_place, l_ip, l_isp;
+        IpThreatInfo l_threat;
+        if (FetchIpInfoByUrl(url, use_proxy, l_place, l_ip, l_isp, l_threat))
+        {
+            if (!l_ip.empty())
+            {
+                out_place = l_place;
+                out_ip = l_ip;
+                out_isp = l_isp;
+                out_threat = l_threat;
+                LogInfo(L"FetchIpInfo: [%ls] Succeeded via source #%d (%ls): IP=%ls, Place=%ls",
+                    use_proxy ? L"Proxy" : L"Direct", (int)i + 1, url.c_str(), out_ip.c_str(), out_place.c_str());
+                return true;
+            }
+        }
+        else
+        {
+            LogInfo(L"FetchIpInfo: [%ls] Source #%d failed (%ls)", use_proxy ? L"Proxy" : L"Direct", (int)i + 1, url.c_str());
+        }
+    }
+
+    LogInfo(L"FetchIpInfo: [%ls] All %d sources failed.", use_proxy ? L"Proxy" : L"Direct", (int)sources.size());
+    out_place = L"请求失败（连接超时或网络未达）";
+    out_ip.clear();
+    out_isp.clear();
+    out_threat = IpThreatInfo{};
+    return false;
+}
 static void AppendWrappedList(std::wstring& out, const std::vector<std::pair<std::wstring, int>>& items,
                               const wchar_t* prefix, size_t perLine)
 {
@@ -720,16 +804,16 @@ void CDataManager::UpdateIpInfoNow()
     bool use_proxy = m_setting_data.use_proxy;
     std::wstring proxy_addr = m_setting_data.proxy_address;
 
-    // 1. 直连探测
+    // 1. 直连探测（高可用多源轮询）
     LogInfo(L"UpdateIpInfoNow: Fetching direct IP...");
-    ok_direct = FetchIpInfoByUrl(m_setting_data.api_domestic_url, false, l_place_direct, l_public_ip_direct, l_isp_direct, l_threat_direct);
+    ok_direct = FetchIpInfoWithFallback(m_setting_data.api_domestic_url, false, l_place_direct, l_public_ip_direct, l_isp_direct, l_threat_direct);
     LogInfo(L"UpdateIpInfoNow: Direct query done (ok=%d).", ok_direct ? 1 : 0);
 
-    // 2. 代理探测
+    // 2. 代理探测（高可用多源轮询）
     if (use_proxy)
     {
         LogInfo(L"UpdateIpInfoNow: Fetching proxy IP...");
-        ok_proxy = FetchIpInfoByUrl(m_setting_data.api_foreign_url, true, l_place_proxy, l_public_ip_proxy, l_isp_proxy, l_threat_proxy);
+        ok_proxy = FetchIpInfoWithFallback(m_setting_data.api_foreign_url, true, l_place_proxy, l_public_ip_proxy, l_isp_proxy, l_threat_proxy);
         LogInfo(L"UpdateIpInfoNow: Proxy query done (ok=%d).", ok_proxy ? 1 : 0);
     }
 
@@ -757,17 +841,62 @@ void CDataManager::UpdateIpInfoNow()
         l_latency.push_back(r);
     }
     LogInfo(L"UpdateIpInfoNow: Latency tests done.");
-    if (!ok_direct)
+
+    // 平滑缓存保留：若偶发单次刷新失败且此前有成功记录，保留旧值，防止网络波动导致任务栏频繁红字闪烁
+    if (ok_direct)
     {
-        l_public_ip_direct.clear(); l_isp_direct.clear(); l_threat_direct = IpThreatInfo{};
+        m_direct_fail_count = 0;
     }
-    if (!ok_proxy)
+    else
     {
-        l_public_ip_proxy.clear(); l_isp_proxy.clear(); l_threat_proxy = IpThreatInfo{};
+        m_direct_fail_count++;
+        if (!m_public_ip_direct.empty() && m_direct_fail_count <= 3)
+        {
+            LogInfo(L"UpdateIpInfoNow: Direct query failed (%d/3), retaining previous IP: %ls", m_direct_fail_count, m_public_ip_direct.c_str());
+            l_public_ip_direct = m_public_ip_direct;
+            l_place_direct     = m_place_direct;
+            l_isp_direct       = m_isp_direct;
+            l_threat_direct    = m_threat_direct;
+            ok_direct = true;
+        }
+        else
+        {
+            l_place_direct = L"请求失败（连接超时或网络未达）";
+            l_public_ip_direct.clear();
+            l_isp_direct.clear();
+            l_threat_direct = IpThreatInfo{};
+        }
+    }
+
+    if (use_proxy)
+    {
+        if (ok_proxy)
+        {
+            m_proxy_fail_count = 0;
+        }
+        else
+        {
+            m_proxy_fail_count++;
+            if (!m_public_ip_proxy.empty() && m_proxy_fail_count <= 3)
+            {
+                LogInfo(L"UpdateIpInfoNow: Proxy query failed (%d/3), retaining previous IP: %ls", m_proxy_fail_count, m_public_ip_proxy.c_str());
+                l_public_ip_proxy = m_public_ip_proxy;
+                l_place_proxy     = m_place_proxy;
+                l_isp_proxy       = m_isp_proxy;
+                l_threat_proxy    = m_threat_proxy;
+                ok_proxy = true;
+            }
+            else
+            {
+                l_place_proxy = L"请求失败（连接超时或网络未达）";
+                l_public_ip_proxy.clear();
+                l_isp_proxy.clear();
+                l_threat_proxy = IpThreatInfo{};
+            }
+        }
     }
 
     bool any_ok = ok_direct || ok_proxy;
-
     // 任务栏汇总文本
     std::wstring l_ip_region_display;
     if (!l_place_direct.empty()) { l_ip_region_display += L"直:"; l_ip_region_display += l_place_direct; }

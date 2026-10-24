@@ -49,6 +49,10 @@
   - 常规设置面板状态行提供动态跳动的秒级倒计时，实时掌握下一次自动探测的时间点。
 - **表格列宽自动伸缩**：
   - 延迟测速列表应用资源管理器主题（Explorer），列宽按比例自适应卡片实际宽度，在高分屏 DPI 下无横向滚动条。
+- **多源高可用探测链与平滑降级（v2.1.1）**：
+  - 内置多级权威公共 IP 探测备用池（`ip-api.com`、`api.ip.sb`、`ipwho.is`、`ipinfo.io`），首选源异常时自动链式降级尝试，防止单点故障。
+  - 引入网络抖动平滑保留策略，当发生偶发性单次刷新失败时自动平滑复用历史健康缓存，避免任务栏频繁闪烁红字超时警告。
+  - 放宽 HTTPS 代理中间人证书容错与自动跟踪重定向，无缝兼容内网代理与抓包工具。
 - **链路独立探测与代理分流支持**：
   - 支持分别获取直连与代理出口的 IP、国家/地区/城市、ISP 运营商。
   - 代理出口默认使用国际化 API 接口（如 ip-api.com），避免由于分流规则导致出口 IP 识别错误。
@@ -182,6 +186,8 @@ A modern IP region and network latency monitoring plugin designed for TrafficMon
   - Displays a real-time ticking countdown in the options dialog indicating when the next automatic refresh will occur.
 - **Adaptive Column Widths**:
   - The latency targets ListView dynamically proportions column widths according to card dimensions with no horizontal scrollbars.
+- **High Availability Multi-Source Fallback (v2.1.1)**:
+  - Features multi-tiered fallback endpoints (`ip-api.com`, `api.ip.sb`, `ipwho.is`, `ipinfo.io`) with smooth caching to prevent transient timeouts and taskbar display drops during network fluctuations.
 - **Dual Egress & Proxy Split-Routing Support**:
   - Concurrently queries public IP, location, and ISP for both direct and proxy links.
   - Uses internationalized endpoints for foreign queries to prevent split-routing misidentification.
