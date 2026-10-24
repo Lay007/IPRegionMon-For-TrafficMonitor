@@ -13,6 +13,7 @@ CIPRegionMon& CIPRegionMon::Instance() { return m_instance; }
 
 IPluginItem* CIPRegionMon::GetItem(int index)
 {
+    AFX_MANAGE_STATE(AfxGetStaticModuleState());
     switch (index)
     {
     case 0: return &m_direct_item;   // 直
@@ -23,6 +24,7 @@ IPluginItem* CIPRegionMon::GetItem(int index)
 
 void CIPRegionMon::DataRequired()
 {
+    AFX_MANAGE_STATE(AfxGetStaticModuleState());
     g_data.SwapBuffers();
     g_data.UpdateIpInfoIfNeeded();
 }
@@ -61,21 +63,22 @@ ITMPlugin::OptionReturn CIPRegionMon::ShowOptionsDialog(void* hParent)
 
 void CIPRegionMon::OnExtenedInfo(ExtendedInfoIndex index, const wchar_t* data)
 {
+    AFX_MANAGE_STATE(AfxGetStaticModuleState());
     switch (index)
     {
     case ITMPlugin::EI_CONFIG_DIR:
         g_data.LoadConfig(std::wstring(data));
-        g_data.m_is_updating = true;
-        std::thread([]{
-            g_data.UpdateIpInfoNow();
-            g_data.m_is_updating = false;
-        }).detach();
+        g_data.ForceUpdateAsync();
         break;
     default: break;
     }
 }
 
-const wchar_t* CIPRegionMon::GetTooltipInfo() { return g_data.m_tooltip.c_str(); }
+const wchar_t* CIPRegionMon::GetTooltipInfo()
+{
+    AFX_MANAGE_STATE(AfxGetStaticModuleState());
+    return g_data.m_tooltip.c_str();
+}
 
 ITMPlugin* TMPluginGetInstance()
 {

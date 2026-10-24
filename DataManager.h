@@ -24,6 +24,15 @@ struct LatencyTarget
     std::wstring url;    // 测试地址（域名或URL）
 };
 
+enum DisplayFormat
+{
+    DF_REGION_ONLY = 0,        // 仅地区 (例如: CN 上海)
+    DF_REGION_AND_IP = 1,      // 地区 + IP (例如: CN 上海 (1.2.3.4))
+    DF_IP_ONLY = 2,            // 仅 IP (例如: 1.2.3.4)
+    DF_REGION_AND_LATENCY = 3, // 地区 + 延迟 (例如: CN 上海 15ms)
+    DF_FULL = 4                // 完整 (例如: CN 上海 电信 (1.2.3.4))
+};
+
 struct SettingData
 {
     bool show_second{};
@@ -38,9 +47,11 @@ struct SettingData
     std::wstring api_url;
     // 刷新间隔（秒）
     int refresh_interval_sec{ 300 }; // 默认 5 分钟
-    // 是否在数值文本中显示IP（括号中的IP），已不再使用，仅兼容
+    // 是否在数值文本中显示IP（兼容旧版设置）
     bool show_ip{ true };
-    // 延迟目标（最多3项）
+    // 显示格式 (0: 仅地区, 1: 地区+IP, 2: 仅IP, 3: 地区+延迟, 4: 完整信息)
+    int display_format{ DF_REGION_AND_IP };
+    // 延迟目标（动态列表）
     std::vector<LatencyTarget> latency_targets;
 };
 
@@ -59,7 +70,7 @@ public:
     void SaveConfig() const;
     const wchar_t* StringRes(UINT id);      //根据资源id获取一个字符串资源
 
-    void UpdateIpInfoNow();         // 立即获取信息并测速（同步执行，勿在UI线程调用）
+    void UpdateIpInfoNow();         // 立即获取信息并测速（并发异步执行，勿在UI主线程调用）
     void UpdateIpInfoIfNeeded();    // 节流定时获取，适合在计时器中调用
     void ForceUpdateAsync();        // 强制启动后台异步刷新（供UI按钮调用）
     bool IsUpdating() const;        // 是否正在后台刷新
@@ -67,7 +78,16 @@ public:
     std::wstring GetLastUpdateStatusString() const;
     void SwapBuffers();             // 将后台缓冲数据同步到主线程使用
 
-    // 写入日志到 IPRegionMon_debug.log
+    // 格式化输出任务栏监控文本
+    std::wstring FormatItemText(bool is_proxy) const;
+
+    // 单独测试代理服务器连通性（同步执行，应在后台调用）
+    bool TestProxyConnectivity(const std::wstring& proxy, std::wstring& out_message, double& out_ms);
+
+    // 单独测试指定 URL 的延迟（同步执行，ms）
+    static bool MeasureLatencyMs(const std::wstring& url_or_host, const std::wstring& proxy, bool no_proxy, double& out_ms);
+
+    // 写入日志到 IPRegionMon_debug.log（带自动大小滚动控制）
     void LogInfo(const wchar_t* format, ...);
 
 public:
@@ -78,7 +98,7 @@ public:
 
     // IP 与地区显示
     std::wstring m_public_ip;            // 历史字段（兼容）
-    std::wstring m_ip_region_display;    // 任务栏显示文本，例如："直: 1.2.3.4 | 代: 5.6.7.8"
+    std::wstring m_ip_region_display;    // 任务栏显示文本
 
     // 双IP
     std::wstring m_public_ip_direct;     // 直连（不经代理）公网IP
@@ -91,7 +111,7 @@ public:
     IpThreatInfo m_threat_proxy;         // 代理威胁/泄漏信息
 
     // 延迟（毫秒，<0 表示无效），按用户配置存放结果
-    struct LatencyResult { std::wstring name; double direct_ms{-1}; double proxy_ms{-1}; };
+    struct LatencyResult { std::wstring name; std::wstring url; double direct_ms{-1}; double proxy_ms{-1}; };
     std::vector<LatencyResult> m_latency_results;
 
     // 鼠标提示（完整地区信息）
@@ -107,11 +127,14 @@ private:
     unsigned int m_ip_update_interval_ms{ 5 * 60 * 1000 }; // 默认5分钟
 
     // 最后更新信息
-    bool m_last_source_domestic{ false }; // true: 国内, false: 国外（仅作参考）
+    bool m_last_source_domestic{ false };
     SYSTEMTIME m_last_update_time{};      // 本地时间
 
-    // 执行一次请求，返回 place（国家/地区/城市组合）、ip、isp、threat
+    // 执行一次请求，返回 place、ip、isp、threat
     bool FetchIpInfoByUrl(const std::wstring& url, bool use_proxy, std::wstring& out_place, std::wstring& out_ip, std::wstring& out_isp, IpThreatInfo& out_threat);
+
+    // 日志滚动管理
+    void RotateLogIfNeeded(const std::wstring& log_path);
 
     // 后台缓存变量 (Double Buffering)
     std::wstring m_public_ip_direct_bg;

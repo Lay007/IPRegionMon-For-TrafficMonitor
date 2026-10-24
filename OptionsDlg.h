@@ -1,7 +1,8 @@
 #pragma once
-#include <afxcmn.h>    // CTabCtrl
+#include <afxcmn.h>
 #include "resource.h"
 #include "DataManager.h"
+#include <vector>
 
 // ────────────────────────────────────────────────────────────────────────
 // Tab 0: 常规 / 网络 & 代理 设置
@@ -18,29 +19,32 @@ public:
 protected:
     virtual BOOL OnInitDialog() override;
     virtual void DoDataExchange(CDataExchange* pDX) override;
-    // 子页不拦截 IDOK/IDCANCEL，交由父对话框处理
     virtual void OnOK() override {}
     virtual void OnCancel() override {}
 
     afx_msg void OnBnClickedUseProxy();
     afx_msg void OnBnClickedRefreshNow();
+    afx_msg void OnBnClickedTestProxy();
     afx_msg void OnTimer(UINT_PTR nIDEvent);
     DECLARE_MESSAGE_MAP()
 
 private:
     void UpdateProxyEditState();
 
-    CButton m_chkUseProxy;
-    CEdit   m_edtProxy;
-    CEdit   m_edtDomesticApi;
-    CEdit   m_edtForeignApi;
-    CEdit   m_edtInterval;
-    CButton m_btnRefresh;
-    CStatic m_stcStatus;
+    CComboBox m_cmbDisplayFormat;
+    CButton   m_chkUseProxy;
+    CEdit     m_edtProxy;
+    CEdit     m_edtDomesticApi;
+    CEdit     m_edtForeignApi;
+    CEdit     m_edtInterval;
+    CButton   m_btnRefresh;
+    CStatic   m_stcStatus;
+    CButton   m_btnTestProxy;
+    CStatic   m_stcTestProxyStatus;
 };
 
 // ────────────────────────────────────────────────────────────────────────
-// Tab 1: 延迟目标（3 行固定 Edit 对，彻底替代 SysListView32）
+// Tab 1: 延迟目标设置（动态 ListView 报表，带连通性与增删排）
 // ────────────────────────────────────────────────────────────────────────
 class CTabLatencyDlg : public CDialog
 {
@@ -57,22 +61,27 @@ protected:
     virtual void OnOK() override {}
     virtual void OnCancel() override {}
 
-    afx_msg void OnBnClickedDel0();
-    afx_msg void OnBnClickedDel1();
-    afx_msg void OnBnClickedDel2();
+    afx_msg void OnBnClickedAdd();
+    afx_msg void OnBnClickedDel();
+    afx_msg void OnBnClickedUp();
+    afx_msg void OnBnClickedDown();
+    afx_msg void OnBnClickedTest();
+    afx_msg void OnNMClickList(NMHDR* pNMHDR, LRESULT* pResult);
+    afx_msg void OnNMDblclkList(NMHDR* pNMHDR, LRESULT* pResult);
     DECLARE_MESSAGE_MAP()
 
 private:
-    // 删除指定行并将后续行上移
-    void DeleteRow(int row);
+    void RefreshList();
+    void LoadSelectedToEdit();
 
-    CEdit   m_edtName[3];
-    CEdit   m_edtUrl[3];
-    CButton m_btnDel[3];
+    CListCtrl m_listCtrl;
+    CEdit     m_edtName;
+    CEdit     m_edtUrl;
+    std::vector<LatencyTarget> m_targets;
 };
 
 // ────────────────────────────────────────────────────────────────────────
-// Tab 2: 当前状态（只读展示 tooltip 内容）
+// Tab 2: 当前状态与安全检测报告（卡片式对照 + 一键复制）
 // ────────────────────────────────────────────────────────────────────────
 class CTabStatusDlg : public CDialog
 {
@@ -81,15 +90,33 @@ public:
     explicit CTabStatusDlg(CWnd* pParent = nullptr);
     enum { IDD = IDD_TAB_STATUS_INFO };
 
+    void UpdateStatusView();
+
 protected:
     virtual BOOL OnInitDialog() override;
     virtual void DoDataExchange(CDataExchange* pDX) override;
     virtual void OnOK() override {}
     virtual void OnCancel() override {}
+
+    afx_msg void OnBnClickedCopyDirect();
+    afx_msg void OnBnClickedCopyProxy();
+    afx_msg void OnBnClickedCopyAll();
     DECLARE_MESSAGE_MAP()
 
 private:
-    CEdit m_edtStatus;
+    void CopyToClipboard(const std::wstring& text);
+
+    CStatic m_stcDirectIp;
+    CStatic m_stcDirectPlace;
+    CStatic m_stcDirectIsp;
+    CStatic m_stcDirectThreat;
+
+    CStatic m_stcProxyIp;
+    CStatic m_stcProxyPlace;
+    CStatic m_stcProxyIsp;
+    CStatic m_stcProxyThreat;
+
+    CEdit   m_edtStatus;
 };
 
 // ────────────────────────────────────────────────────────────────────────

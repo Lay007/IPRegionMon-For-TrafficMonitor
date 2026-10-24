@@ -4,6 +4,7 @@
 #include <stdarg.h>
 #include <fstream>
 #include <thread>
+#include <future>
 #pragma comment(lib, "winhttp.lib")
 
 // declare __ImageBase to get current module path when used inside DLL
@@ -123,7 +124,6 @@ static std::wstring GetJsonStringValue(const std::wstring& json, const wchar_t* 
     {
         size_t start = pos + 1;
         size_t end = start;
-        // 寻找非转义的双引号作为终点
         while (end < json.size())
         {
             if (json[end] == L'"')
@@ -141,7 +141,6 @@ static std::wstring GetJsonStringValue(const std::wstring& json, const wchar_t* 
     size_t end = pos;
     while (end < json.size() && json[end] != L',' && json[end] != L'}' && json[end] != L']') ++end;
     std::wstring raw = json.substr(pos, end - pos);
-    // 移除可能的首尾空白
     size_t trim_s = 0, trim_e = raw.size();
     while (trim_s < raw.size() && iswspace(raw[trim_s])) ++trim_s;
     while (trim_e > trim_s && iswspace(raw[trim_e - 1])) --trim_e;
@@ -154,24 +153,19 @@ static bool GetJsonBoolValue(const std::wstring& json, const wchar_t* key)
     return (val == L"true" || val == L"1");
 }
 
-// 提取 JSON 中 key 对应的完整对象（{ ... }）字符串
-// 用于精确解析两层嵌套字段（如 asn.type），避免跨对象匹配同名字段
 static std::wstring GetJsonObjectValue(const std::wstring& json, const wchar_t* key)
 {
     std::wstring keyQuoted = L"\"" + std::wstring(key) + L"\"";
     size_t kpos = json.find(keyQuoted);
     if (kpos == std::wstring::npos) return L"";
 
-    // 找 ':'
     size_t colon = json.find(L':', kpos + keyQuoted.size());
     if (colon == std::wstring::npos) return L"";
 
-    // 跳过空白找 '{'
     size_t pos = colon + 1;
     while (pos < json.size() && iswspace(json[pos])) ++pos;
     if (pos >= json.size() || json[pos] != L'{') return L"";
 
-    // 括号计数找对应 '}'
     int depth = 1;
     size_t end = pos + 1;
     while (end < json.size() && depth > 0)
@@ -180,11 +174,10 @@ static std::wstring GetJsonObjectValue(const std::wstring& json, const wchar_t* 
         else if (json[end] == L'}') --depth;
         ++end;
     }
-    return json.substr(pos, end - pos);   // 返回包含首尾大括号的子串
+    return json.substr(pos, end - pos);
 }
 
 // 通过 WinHTTP 进行 GET 请求
-// proxy 为空且 no_proxy 为 true 时，强制直连（绕过系统代理）
 static bool HttpGet(const std::wstring& url, const std::wstring& proxy, bool no_proxy, std::string& out)
 {
     URL_COMPONENTSW uc{}; uc.dwStructSize = sizeof(uc);
@@ -195,38 +188,42 @@ static bool HttpGet(const std::wstring& url, const std::wstring& proxy, bool no_
     if (!WinHttpCrackUrl(url.c_str(), 0, 0, &uc))
         return false;
     bool https = (uc.nScheme == INTERNET_SCHEME_HTTPS);
+    std::wstring sHost(uc.lpszHostName, uc.dwHostNameLength);
+    std::wstring sPath(uc.lpszUrlPath, uc.dwUrlPathLength);
 
     DWORD accessType = WINHTTP_ACCESS_TYPE_DEFAULT_PROXY;
-    if (no_proxy && proxy.empty())
+    const wchar_t* pProxy = WINHTTP_NO_PROXY_NAME;
+    if (!proxy.empty())
+    {
+        accessType = WINHTTP_ACCESS_TYPE_NAMED_PROXY;
+        pProxy = proxy.c_str();
+    }
+    else if (no_proxy)
+    {
         accessType = WINHTTP_ACCESS_TYPE_NO_PROXY;
+    }
 
-    HINTERNET hs = WinHttpOpen(L"TrafficMonitor-IPPlugin/1.0",
-        accessType, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    HINTERNET hs = WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        accessType, pProxy, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!hs) return false;
 
-    // 设置超时，避免UI卡死（单位ms）
-    WinHttpSetTimeouts(hs, 5000, 5000, 5000, 5000);
+    // 连接与读取超时设为 3000ms
+    WinHttpSetTimeouts(hs, 3000, 3000, 3000, 3000);
 
-    // 显式启用 TLS 1.2 与 TLS 1.3
+    DWORD maxRetries = 1;
+    WinHttpSetOption(hs, WINHTTP_OPTION_CONNECT_RETRIES, &maxRetries, sizeof(maxRetries));
+
     DWORD protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
     WinHttpSetOption(hs, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols));
 
-    if (!proxy.empty())
-    {
-        std::wstring s = L"http=" + proxy + L";https=" + proxy;
-        WINHTTP_PROXY_INFO pi{}; pi.dwAccessType = WINHTTP_ACCESS_TYPE_NAMED_PROXY;
-        pi.lpszProxy = const_cast<wchar_t*>(s.c_str());
-        WinHttpSetOption(hs, WINHTTP_OPTION_PROXY, &pi, sizeof(pi));
-    }
-
-    HINTERNET hc = WinHttpConnect(hs, uc.lpszHostName, uc.nPort, 0);
+    HINTERNET hc = WinHttpConnect(hs, sHost.c_str(), uc.nPort, 0);
     if (!hc) { WinHttpCloseHandle(hs); return false; }
 
     DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
-    HINTERNET hr = WinHttpOpenRequest(hc, L"GET", uc.lpszUrlPath, nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    HINTERNET hr = WinHttpOpenRequest(hc, L"GET", sPath.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
     if (!hr) { WinHttpCloseHandle(hc); WinHttpCloseHandle(hs); return false; }
 
-    BOOL ok = WinHttpSendRequest(hr, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
+    BOOL ok = WinHttpSendRequest(hr, L"Connection: close\r\n", -1L, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
     if (ok) ok = WinHttpReceiveResponse(hr, nullptr);
 
     if (ok)
@@ -237,6 +234,7 @@ static bool HttpGet(const std::wstring& url, const std::wstring& proxy, bool no_
             if (!WinHttpQueryDataAvailable(hr, &sz) || sz == 0) break;
             std::string buf; buf.resize(sz);
             if (!WinHttpReadData(hr, &buf[0], sz, &got)) break;
+            if (got == 0) break;
             buf.resize(got);
             out += buf;
         } while (sz > 0);
@@ -246,13 +244,12 @@ static bool HttpGet(const std::wstring& url, const std::wstring& proxy, bool no_
     return !out.empty();
 }
 
-static bool MeasureLatencyMs(const std::wstring& url_or_host, const std::wstring& proxy, bool no_proxy, double& out_ms)
+bool CDataManager::MeasureLatencyMs(const std::wstring& url_or_host, const std::wstring& proxy, bool no_proxy, double& out_ms)
 {
     out_ms = -1.0;
-    // 解析主机与路径，允许传入域名或完整URL
     std::wstring url = url_or_host;
     if (url.find(L"://") == std::wstring::npos)
-        url = L"https://" + url; // 默认https
+        url = L"https://" + url;
     URL_COMPONENTSW uc{}; uc.dwStructSize = sizeof(uc);
     wchar_t host[256]{}; wchar_t path[2048]{}; wchar_t scheme[16]{};
     uc.lpszHostName = host; uc.dwHostNameLength = _countof(host);
@@ -261,39 +258,43 @@ static bool MeasureLatencyMs(const std::wstring& url_or_host, const std::wstring
     if (!WinHttpCrackUrl(url.c_str(), 0, 0, &uc))
         return false;
     bool https = (uc.nScheme == INTERNET_SCHEME_HTTPS);
+    std::wstring sHost(uc.lpszHostName, uc.dwHostNameLength);
+    std::wstring sPath(uc.lpszUrlPath, uc.dwUrlPathLength);
 
     DWORD accessType = WINHTTP_ACCESS_TYPE_DEFAULT_PROXY;
-    if (no_proxy && proxy.empty())
+    const wchar_t* pProxy = WINHTTP_NO_PROXY_NAME;
+    if (!proxy.empty())
+    {
+        accessType = WINHTTP_ACCESS_TYPE_NAMED_PROXY;
+        pProxy = proxy.c_str();
+    }
+    else if (no_proxy)
+    {
         accessType = WINHTTP_ACCESS_TYPE_NO_PROXY;
+    }
 
-    HINTERNET hs = WinHttpOpen(L"TrafficMonitor-IPPlugin/1.0",
-        accessType, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    HINTERNET hs = WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        accessType, pProxy, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!hs) return false;
 
-    // 设置超时
-    WinHttpSetTimeouts(hs, 3000, 3000, 3000, 3000);
+    // 测速超时 1200ms
+    WinHttpSetTimeouts(hs, 1200, 1200, 1200, 1200);
 
-    // 显式启用 TLS 1.2 与 TLS 1.3
+    DWORD maxRetries = 1;
+    WinHttpSetOption(hs, WINHTTP_OPTION_CONNECT_RETRIES, &maxRetries, sizeof(maxRetries));
+
     DWORD protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
     WinHttpSetOption(hs, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols));
 
-    if (!proxy.empty())
-    {
-        std::wstring s = L"http=" + proxy + L";https=" + proxy;
-        WINHTTP_PROXY_INFO pi{}; pi.dwAccessType = WINHTTP_ACCESS_TYPE_NAMED_PROXY;
-        pi.lpszProxy = const_cast<wchar_t*>(s.c_str());
-        WinHttpSetOption(hs, WINHTTP_OPTION_PROXY, &pi, sizeof(pi));
-    }
-
-    HINTERNET hc = WinHttpConnect(hs, uc.lpszHostName, uc.nPort, 0);
+    HINTERNET hc = WinHttpConnect(hs, sHost.c_str(), uc.nPort, 0);
     if (!hc) { WinHttpCloseHandle(hs); return false; }
 
     DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
-    HINTERNET hr = WinHttpOpenRequest(hc, L"HEAD", uc.lpszUrlPath, nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    HINTERNET hr = WinHttpOpenRequest(hc, L"HEAD", sPath.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
     if (!hr) { WinHttpCloseHandle(hc); WinHttpCloseHandle(hs); return false; }
 
     ULONGLONG t0 = GetTickCount64();
-    BOOL ok = WinHttpSendRequest(hr, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
+    BOOL ok = WinHttpSendRequest(hr, L"Connection: close\r\n", -1L, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
     if (ok) ok = WinHttpReceiveResponse(hr, nullptr);
     ULONGLONG t1 = GetTickCount64();
 
@@ -304,18 +305,51 @@ static bool MeasureLatencyMs(const std::wstring& url_or_host, const std::wstring
     return ok == TRUE;
 }
 
+bool CDataManager::TestProxyConnectivity(const std::wstring& proxy, std::wstring& out_message, double& out_ms)
+{
+    out_ms = -1.0;
+    if (proxy.empty())
+    {
+        out_message = L"代理地址为空！";
+        return false;
+    }
+
+    // 探测 www.cloudflare.com
+    bool ok = MeasureLatencyMs(L"https://www.cloudflare.com", proxy, false, out_ms);
+    if (!ok || out_ms < 0)
+    {
+        ok = MeasureLatencyMs(L"https://www.google.com", proxy, false, out_ms);
+    }
+
+    if (ok && out_ms >= 0)
+    {
+        wchar_t buf[64]{};
+        swprintf_s(buf, L"连接成功 (延迟: %.0f ms)", out_ms);
+        out_message = buf;
+        return true;
+    }
+    else
+    {
+        out_message = L"连接失败：无法通过该代理访问目标网络";
+        return false;
+    }
+}
+
 CDataManager::CDataManager()
 {
-    // 默认 API
-    // 直连和代理均使用 ip-api.com：支持 lang=zh-CN 中文显示，含 proxy/hosting 检测字段
-    // 需要更精确的 asn.type 检测时可在设置界面将代理 API 改为 https://api.ipapi.is/
-    const wchar_t* kDomesticApi = L"http://ip-api.com/json/?fields=status,message,country,regionName,city,isp,query,proxy,hosting&lang=zh-CN";
+    const wchar_t* kDomesticApi = L"https://myip.ipip.net/json";
     const wchar_t* kForeignApi  = L"http://ip-api.com/json/?fields=status,message,country,regionName,city,isp,query,proxy,hosting&lang=zh-CN";
     m_setting_data.api_domestic_url = kDomesticApi;
     m_setting_data.api_foreign_url  = kForeignApi;
     m_setting_data.use_proxy = false;
     m_setting_data.refresh_interval_sec = 300;
     m_setting_data.show_ip = true;
+    m_setting_data.display_format = DF_REGION_AND_IP;
+
+    // 默认测试目标
+    m_setting_data.latency_targets.push_back({ L"百度", L"https://www.baidu.com" });
+    m_setting_data.latency_targets.push_back({ L"Google", L"https://www.google.com" });
+    m_setting_data.latency_targets.push_back({ L"Cloudflare", L"https://1.1.1.1" });
 
     m_ip_update_interval_ms = m_setting_data.refresh_interval_sec * 1000u;
 }
@@ -332,7 +366,6 @@ CDataManager& CDataManager::Instance()
 
 void CDataManager::LoadConfig(const std::wstring& config_dir)
 {
-    //获取模块的路径
     HMODULE hModule = reinterpret_cast<HMODULE>(&__ImageBase);
     wchar_t path[MAX_PATH];
     GetModuleFileNameW(hModule, path, MAX_PATH);
@@ -356,6 +389,10 @@ void CDataManager::LoadConfig(const std::wstring& config_dir)
     m_setting_data.refresh_interval_sec = GetPrivateProfileIntW(L"ip", L"refresh_interval_sec", 300, m_config_path.c_str());
     m_setting_data.show_ip = GetPrivateProfileIntW(L"ip", L"show_ip", 1, m_config_path.c_str()) != 0;
 
+    // 读取显示格式（若无则根据旧版 show_ip 推断）
+    int def_format = m_setting_data.show_ip ? DF_REGION_AND_IP : DF_REGION_ONLY;
+    m_setting_data.display_format = GetPrivateProfileIntW(L"ip", L"display_format", def_format, m_config_path.c_str());
+
     GetPrivateProfileStringW(L"ip", L"api_url", L"", buff, _countof(buff), m_config_path.c_str());
     m_setting_data.api_url = buff;
 
@@ -364,18 +401,10 @@ void CDataManager::LoadConfig(const std::wstring& config_dir)
     GetPrivateProfileStringW(L"ip", L"api_foreign_url", L"", buff, _countof(buff), m_config_path.c_str());
     std::wstring foreign = buff;
 
-    // 新增：读取延迟目标
-    // 旧键兼容：latency_target（单项）
-    GetPrivateProfileStringW(L"ip", L"latency_target", L"", buff, _countof(buff), m_config_path.c_str());
-    std::wstring single_latency = Utf8HexDecode(buff);
+    // 读取延迟目标列表
     m_setting_data.latency_targets.clear();
-    // 多项：latency_targets_n 与 latency_name_i/latency_url_i
-    int n = GetPrivateProfileIntW(L"ip", L"latency_targets_n", (single_latency.empty() ? 0 : 1), m_config_path.c_str());
-    if (n <= 0 && !single_latency.empty())
-    {
-        m_setting_data.latency_targets.push_back({ L"默认", single_latency });
-    }
-    else
+    int n = GetPrivateProfileIntW(L"ip", L"latency_targets_n", 0, m_config_path.c_str());
+    if (n > 0)
     {
         for (int i = 0; i < n; ++i)
         {
@@ -389,12 +418,27 @@ void CDataManager::LoadConfig(const std::wstring& config_dir)
                 m_setting_data.latency_targets.push_back({ name, url });
         }
     }
+    else
+    {
+        // 兼容单项 latency_target 或默认
+        GetPrivateProfileStringW(L"ip", L"latency_target", L"", buff, _countof(buff), m_config_path.c_str());
+        std::wstring single_latency = Utf8HexDecode(buff);
+        if (!single_latency.empty())
+        {
+            m_setting_data.latency_targets.push_back({ L"默认", single_latency });
+        }
+        else
+        {
+            m_setting_data.latency_targets.push_back({ L"百度", L"https://www.baidu.com" });
+            m_setting_data.latency_targets.push_back({ L"Google", L"https://www.google.com" });
+            m_setting_data.latency_targets.push_back({ L"Cloudflare", L"https://1.1.1.1" });
+        }
+    }
 
     if (!domestic.empty()) m_setting_data.api_domestic_url = domestic; else if (!m_setting_data.api_url.empty()) m_setting_data.api_domestic_url = m_setting_data.api_url;
     if (!foreign.empty())  m_setting_data.api_foreign_url  = foreign;  else if (!m_setting_data.api_url.empty()) m_setting_data.api_foreign_url  = m_setting_data.api_url;
 
-    // 如果仍为空，回退到默认接口（均使用 ip-api.com，支持中文显示）
-    const wchar_t* kDomesticApi = L"http://ip-api.com/json/?fields=status,message,country,regionName,city,isp,query,proxy,hosting&lang=zh-CN";
+    const wchar_t* kDomesticApi = L"https://myip.ipip.net/json";
     const wchar_t* kForeignApi  = L"http://ip-api.com/json/?fields=status,message,country,regionName,city,isp,query,proxy,hosting&lang=zh-CN";
     if (m_setting_data.api_domestic_url.empty()) m_setting_data.api_domestic_url = kDomesticApi;
     if (m_setting_data.api_foreign_url.empty())  m_setting_data.api_foreign_url  = kForeignApi;
@@ -417,9 +461,9 @@ void CDataManager::SaveConfig() const
     WritePrivateProfileStringW(L"ip", L"api_foreign_url", m_setting_data.api_foreign_url.c_str(), m_config_path.c_str());
     WritePrivateProfileInt(L"ip", L"refresh_interval_sec", m_setting_data.refresh_interval_sec, m_config_path.c_str());
     WritePrivateProfileInt(L"ip", L"show_ip", m_setting_data.show_ip ? 1 : 0, m_config_path.c_str());
+    WritePrivateProfileInt(L"ip", L"display_format", m_setting_data.display_format, m_config_path.c_str());
 
-    // 保存延迟目标（新版多项）
-    WritePrivateProfileStringW(L"ip", L"latency_target", NULL, m_config_path.c_str()); // 清理旧键
+    WritePrivateProfileStringW(L"ip", L"latency_target", NULL, m_config_path.c_str());
     WritePrivateProfileInt(L"ip", L"latency_targets_n", (int)m_setting_data.latency_targets.size(), m_config_path.c_str());
     for (int i = 0; i < (int)m_setting_data.latency_targets.size(); ++i)
     {
@@ -447,17 +491,17 @@ const wchar_t* CDataManager::StringRes(UINT id)
     static const wchar_t* empty = L""; return empty;
 }
 
-// signature update
 bool CDataManager::FetchIpInfoByUrl(const std::wstring& url, bool use_proxy, std::wstring& out_place, std::wstring& out_ip, std::wstring& out_isp, IpThreatInfo& out_threat)
 {
     std::string resp;
     std::wstring proxy = use_proxy ? m_setting_data.proxy_address : L"";
-    bool no_proxy = !use_proxy; // 直连时强制绕过系统代理
+    bool no_proxy = !use_proxy;
     if (!HttpGet(url, proxy, no_proxy, resp))
     {
         out_place = L"请求失败（连接超时或网络未达）";
         out_ip.clear();
         out_isp.clear();
+        out_threat = IpThreatInfo{};
         return false;
     }
 
@@ -465,10 +509,7 @@ bool CDataManager::FetchIpInfoByUrl(const std::wstring& url, bool use_proxy, std
     std::wstring status = GetJsonStringValue(w, L"status");
     std::wstring message = GetJsonStringValue(w, L"message");
     std::wstring ip = GetJsonStringValue(w, L"query"); if (ip.empty()) ip = GetJsonStringValue(w, L"ip");
-    
-    // ── 地理位置解析 ────────────────────────────────────────────────────────
-    // 优先从 ipapi.is 的 location{} 子对象精确提取，避免与 abuse.country 等同名字段冲突
-    // 若 location{} 不存在（ip-api.com 格式），回退到顶层平铺字段
+
     std::wstring country, region, city;
     {
         std::wstring locObj = GetJsonObjectValue(w, L"location");
@@ -481,7 +522,6 @@ bool CDataManager::FetchIpInfoByUrl(const std::wstring& url, bool use_proxy, std
             city    = GetJsonStringValue(locObj, L"city");
         }
     }
-    // 回退：ip-api.com 平铺格式（regionName, country, city 均在顶层）
     if (country.empty()) country = GetJsonStringValue(w, L"country");
     if (country.empty()) country = GetJsonStringValue(w, L"country_name");
     if (region.empty())  region  = GetJsonStringValue(w, L"regionName");
@@ -489,12 +529,10 @@ bool CDataManager::FetchIpInfoByUrl(const std::wstring& url, bool use_proxy, std
     if (region.empty())  region  = GetJsonStringValue(w, L"state");
     if (city.empty())    city    = GetJsonStringValue(w, L"city");
 
-    // ISP / 运营商名称（兼容 ip-api.com 的 isp 和 ipapi.is 的 company.name / asn.org）
     std::wstring isp = GetJsonStringValue(w, L"isp");
     if (isp.empty()) isp = GetJsonStringValue(w, L"name");
     if (isp.empty()) isp = GetJsonStringValue(w, L"org");
 
-    // ── 威胁检测字段（优先取 API 顶层布尔字段）──────────────────────────────
     out_threat = IpThreatInfo{};
     out_threat.is_proxy      = GetJsonBoolValue(w, L"is_proxy")      || GetJsonBoolValue(w, L"proxy");
     out_threat.is_vpn        = GetJsonBoolValue(w, L"is_vpn")        || GetJsonBoolValue(w, L"vpn");
@@ -503,13 +541,6 @@ bool CDataManager::FetchIpInfoByUrl(const std::wstring& url, bool use_proxy, std
     out_threat.is_mobile     = GetJsonBoolValue(w, L"is_mobile")     || GetJsonBoolValue(w, L"mobile");
     out_threat.is_abuser     = GetJsonBoolValue(w, L"is_abuser")     || GetJsonBoolValue(w, L"abuser");
 
-    // ── ipapi.is: 精确提取 asn{} 对象后读 type 字段 ─────────────────────────
-    // GetJsonObjectValue 确保只在 asn 子对象内查找，不会被 abuse.type 干扰。
-    // 映射关系完全来自 ipapi.is 官方文档定义的 type 枚举值，不含任何自定义关键词：
-    //   "hosting"    → IDC 机房 / 云服务商      "datacenter" → 数据中心
-    //   "cdn"        → CDN 节点（归入机房）       "mobile"     → 移动网络
-    //   "wireless"   → 无线网络（归入移动）
-    //   "isp" / "business" / "education" / "government" → 不设标志（宽带/未知）
     {
         std::wstring asnObj = GetJsonObjectValue(w, L"asn");
         if (!asnObj.empty())
@@ -547,7 +578,6 @@ bool CDataManager::FetchIpInfoByUrl(const std::wstring& url, bool use_proxy, std
     std::wstring place;
     if (!country.empty()) place += country;
     if (!region.empty())  { if (!place.empty()) place += L" "; place += region; }
-    // city 与 region 相同时跳过，避免 "Tokyo Tokyo" 这类重复显示
     if (!city.empty() && city != region) { if (!place.empty()) place += L" "; place += city; }
     out_place = place;
     return true;
@@ -580,61 +610,77 @@ static void AppendWrappedList(std::wstring& out, const std::vector<std::pair<std
     }
 }
 
-
-
 void CDataManager::UpdateIpInfoNow()
 {
     static std::atomic<bool> inside_update{ false };
     if (inside_update.exchange(true)) return;
+    struct UpdateGuard {
+        std::atomic<bool>& f;
+        ~UpdateGuard() { f = false; }
+    } guard{ inside_update };
 
+    ULONGLONG start_tick = GetTickCount64();
     LogInfo(L"UpdateIpInfoNow: Background update thread started.");
 
     std::wstring l_public_ip_direct, l_place_direct, l_isp_direct;
     IpThreatInfo l_threat_direct;
     std::wstring l_public_ip_proxy, l_place_proxy, l_isp_proxy;
     IpThreatInfo l_threat_proxy;
-    std::vector<LatencyResult> l_latency;
-    std::wstring l_tooltip, l_ip_region_display;
-    bool any_ok = false;
 
-    // 直连
-    LogInfo(L"UpdateIpInfoNow: Fetching direct IP...");
-    if (FetchIpInfoByUrl(m_setting_data.api_domestic_url, false, l_place_direct, l_public_ip_direct, l_isp_direct, l_threat_direct))
+    bool ok_direct = false;
+    bool ok_proxy = false;
+    std::vector<LatencyResult> l_latency;
+
+    std::vector<LatencyTarget> targets = m_setting_data.latency_targets;
+    if (targets.empty())
     {
-        any_ok = true;
+        targets.push_back({ L"百度", L"https://www.baidu.com" });
+        targets.push_back({ L"Google", L"https://www.google.com" });
     }
-    else
+
+    bool use_proxy = m_setting_data.use_proxy;
+    std::wstring proxy_addr = m_setting_data.proxy_address;
+
+    // 1. 直连探测
+    LogInfo(L"UpdateIpInfoNow: Fetching direct IP...");
+    ok_direct = FetchIpInfoByUrl(m_setting_data.api_domestic_url, false, l_place_direct, l_public_ip_direct, l_isp_direct, l_threat_direct);
+    LogInfo(L"UpdateIpInfoNow: Direct query done (ok=%d).", ok_direct ? 1 : 0);
+
+    // 2. 代理探测
+    if (use_proxy)
+    {
+        LogInfo(L"UpdateIpInfoNow: Fetching proxy IP...");
+        ok_proxy = FetchIpInfoByUrl(m_setting_data.api_foreign_url, true, l_place_proxy, l_public_ip_proxy, l_isp_proxy, l_threat_proxy);
+        LogInfo(L"UpdateIpInfoNow: Proxy query done (ok=%d).", ok_proxy ? 1 : 0);
+    }
+
+    // 3. 延迟测速
+    LogInfo(L"UpdateIpInfoNow: Testing latencies for %d targets...", (int)targets.size());
+    for (const auto& tgt : targets)
+    {
+        LogInfo(L"UpdateIpInfoNow: Testing target %ls...", tgt.name.c_str());
+        LatencyResult r;
+        r.name = tgt.name.empty() ? tgt.url : tgt.name;
+        r.url  = tgt.url;
+        MeasureLatencyMs(tgt.url, L"", true, r.direct_ms);
+        if (use_proxy)
+            MeasureLatencyMs(tgt.url, proxy_addr, false, r.proxy_ms);
+        l_latency.push_back(r);
+    }
+    LogInfo(L"UpdateIpInfoNow: Latency tests done.");
+    if (!ok_direct)
     {
         l_public_ip_direct.clear(); l_isp_direct.clear(); l_threat_direct = IpThreatInfo{};
     }
-
-    // 代理
-    if (m_setting_data.use_proxy)
+    if (!ok_proxy)
     {
-        LogInfo(L"UpdateIpInfoNow: Fetching proxy IP...");
-        if (FetchIpInfoByUrl(m_setting_data.api_foreign_url, true, l_place_proxy, l_public_ip_proxy, l_isp_proxy, l_threat_proxy))
-        {
-            any_ok = true;
-        }
-        else
-        {
-            l_public_ip_proxy.clear(); l_isp_proxy.clear(); l_threat_proxy = IpThreatInfo{};
-        }
+        l_public_ip_proxy.clear(); l_isp_proxy.clear(); l_threat_proxy = IpThreatInfo{};
     }
 
-    // 测试延迟
-    std::vector<LatencyTarget> targets = m_setting_data.latency_targets;
-    if (targets.empty()) targets.push_back({ L"中国", L"https://www.baidu.com" });
-    for (const auto& tgt : targets)
-    {
-        LatencyResult r; r.name = tgt.name.empty() ? tgt.url : tgt.name;
-        MeasureLatencyMs(tgt.url, L"", true, r.direct_ms);
-        if (m_setting_data.use_proxy)
-            MeasureLatencyMs(tgt.url, m_setting_data.proxy_address, false, r.proxy_ms);
-        l_latency.push_back(r);
-    }
+    bool any_ok = ok_direct || ok_proxy;
 
-    // 任务栏显示文本
+    // 任务栏汇总文本
+    std::wstring l_ip_region_display;
     if (!l_place_direct.empty()) { l_ip_region_display += L"直:"; l_ip_region_display += l_place_direct; }
     else if (!l_public_ip_direct.empty()) { l_ip_region_display += L"直:"; l_ip_region_display += l_public_ip_direct; }
     if (!l_place_proxy.empty()) { if (!l_ip_region_display.empty()) l_ip_region_display += L" | "; l_ip_region_display += L"代:"; l_ip_region_display += l_place_proxy; }
@@ -642,21 +688,20 @@ void CDataManager::UpdateIpInfoNow()
 
     // 构造 Tooltip
     auto FormatThreatStr = [](const IpThreatInfo& t) -> std::wstring {
-        // 枚举实际检测到的所有标签，不做错误假设
         std::wstring type;
         if (t.is_datacenter) { if (!type.empty()) type += L" + "; type += L"IDC机房"; }
         if (t.is_mobile)     { if (!type.empty()) type += L" + "; type += L"移动网络"; }
         if (t.is_vpn)        { if (!type.empty()) type += L" + "; type += L"VPN"; }
         if (t.is_proxy)      { if (!type.empty()) type += L" + "; type += L"代理"; }
         if (t.is_tor)        { if (!type.empty()) type += L" + "; type += L"Tor"; }
-        // 没有任何标记时显示中性的“普通宽带”（多数为家庭宽带），避免用户以为检测失败
         if (type.empty()) type = L"普通宽带";
 
         std::wstring status = t.is_abuser ? L"恶意/黑名单" : L"纯净";
-        if (!t.risk_score.empty()) { status += L" (分数: " + t.risk_score + L")"; }
+        if (!t.risk_score.empty()) { status += L" (欺诈分: " + t.risk_score + L")"; }
         return L"    类型: " + type + L" | 状态: " + status + L"\n";
     };
 
+    std::wstring l_tooltip;
     if (any_ok)
     {
         SYSTEMTIME st{}; GetLocalTime(&st);
@@ -676,48 +721,102 @@ void CDataManager::UpdateIpInfoNow()
             if (!l_isp_proxy.empty()) l_tooltip += L"  " + l_isp_proxy;
             l_tooltip += L"\n" + FormatThreatStr(l_threat_proxy);
         }
-        if (!m_setting_data.use_proxy) l_tooltip += L"（未使用代理）\n";
+        if (!m_setting_data.use_proxy) l_tooltip += L"（未启用代理）\n";
 
         if (!l_latency.empty())
         {
             std::vector<std::pair<std::wstring,int>> ds, ps;
             for (const auto& it : l_latency)
             {
-                if (it.direct_ms >= 0) ds.emplace_back(it.name, (int)(it.direct_ms+0.5));
-                if (it.proxy_ms  >= 0) ps.emplace_back(it.name, (int)(it.proxy_ms +0.5));
+                if (it.direct_ms >= 0) ds.emplace_back(it.name, (int)(it.direct_ms + 0.5));
+                if (it.proxy_ms  >= 0) ps.emplace_back(it.name, (int)(it.proxy_ms  + 0.5));
             }
             l_tooltip += L"延迟:\n";
             AppendWrappedList(l_tooltip, ds, L"直: ", 3);
             if (m_setting_data.use_proxy) AppendWrappedList(l_tooltip, ps, L"代: ", 3);
             else l_tooltip += L"代: -\n";
         }
-        l_tooltip += L"最后更新时间: "; l_tooltip += tb;
+        l_tooltip += L"最后更新: "; l_tooltip += tb;
     }
 
     m_last_ip_update_tick = GetTickCount64();
 
-    // 安全提交：锁定 mutex 并一次性覆盖 _bg 变量
     {
         std::lock_guard<std::mutex> lock(m_swap_mutex);
         m_public_ip_direct_bg = l_public_ip_direct;
         m_place_direct_bg = l_place_direct;
         m_isp_direct_bg = l_isp_direct;
         m_threat_direct_bg = l_threat_direct;
-        
+
         m_public_ip_proxy_bg = l_public_ip_proxy;
         m_place_proxy_bg = l_place_proxy;
         m_isp_proxy_bg = l_isp_proxy;
         m_threat_proxy_bg = l_threat_proxy;
-        
+
         m_latency_results_bg = l_latency;
         m_ip_region_display_bg = l_ip_region_display;
         m_tooltip_bg = l_tooltip;
-        
+
         m_has_new_data = true;
     }
 
-    LogInfo(L"UpdateIpInfoNow: Background update thread completed.");
+    LogInfo(L"UpdateIpInfoNow: Background update completed in %.2f s.", (GetTickCount64() - start_tick) / 1000.0);
     inside_update = false;
+}
+
+std::wstring CDataManager::FormatItemText(bool is_proxy) const
+{
+    const std::wstring& place = is_proxy ? m_place_proxy : m_place_direct;
+    const std::wstring& ip    = is_proxy ? m_public_ip_proxy : m_public_ip_direct;
+    const std::wstring& isp   = is_proxy ? m_isp_proxy : m_isp_direct;
+
+    int fmt = m_setting_data.display_format;
+
+    switch (fmt)
+    {
+    case DF_REGION_ONLY:
+        if (!place.empty()) return place;
+        return ip.empty() ? L"..." : ip;
+
+    case DF_IP_ONLY:
+        if (!ip.empty()) return ip;
+        return place.empty() ? L"..." : place;
+
+    case DF_REGION_AND_LATENCY:
+    {
+        std::wstring out = place.empty() ? ip : place;
+        // 获取第一个有效测速
+        for (const auto& r : m_latency_results)
+        {
+            double ms = is_proxy ? r.proxy_ms : r.direct_ms;
+            if (ms >= 0)
+            {
+                wchar_t b[32]{}; swprintf_s(b, L" %dms", (int)(ms + 0.5));
+                out += b;
+                break;
+            }
+        }
+        return out.empty() ? L"..." : out;
+    }
+
+    case DF_FULL:
+    {
+        std::wstring out = place;
+        if (!isp.empty()) { if (!out.empty()) out += L" "; out += isp; }
+        if (!ip.empty())  { out += L" (" + ip + L")"; }
+        return out.empty() ? L"..." : out;
+    }
+
+    case DF_REGION_AND_IP:
+    default:
+    {
+        if (!place.empty() && !ip.empty())
+            return place + L" (" + ip + L")";
+        if (!place.empty()) return place;
+        if (!ip.empty())    return ip;
+        return L"...";
+    }
+    }
 }
 
 bool CDataManager::IsUpdating() const
@@ -729,13 +828,6 @@ void CDataManager::_ThreadProc()
 {
     UpdateIpInfoNow();
     m_is_updating = false;
-}
-
-static UINT __cdecl BgUpdateThreadProc(LPVOID pParam)
-{
-    CDataManager* pThis = (CDataManager*)pParam;
-    pThis->_ThreadProc();
-    return 0;
 }
 
 void CDataManager::UpdateIpInfoIfNeeded()
@@ -752,16 +844,19 @@ void CDataManager::ForceUpdateAsync()
 {
     if (m_is_updating) return;
 
-    LogInfo(L"ForceUpdateAsync: Spawning asynchronous update thread.");
+    LogInfo(L"ForceUpdateAsync: Spawning background update thread.");
     m_is_updating = true;
-    AfxBeginThread(BgUpdateThreadProc, this);
+    std::thread([this]() {
+        UpdateIpInfoNow();
+        m_is_updating = false;
+    }).detach();
 }
 
 std::wstring CDataManager::GetLastUpdateStatusString() const
 {
     const SYSTEMTIME& st = m_last_update_time; if (st.wYear == 0) return L"";
     wchar_t tb[64]{}; swprintf_s(tb, L"%04d-%02d-%02d %02d:%02d:%02d", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
-    std::wstring s = L"最后更新时间: "; s += tb; return s;
+    std::wstring s = L"最后更新: "; s += tb; return s;
 }
 
 void CDataManager::SwapBuffers()
@@ -783,7 +878,23 @@ void CDataManager::SwapBuffers()
     m_threat_proxy = m_threat_proxy_bg;
 
     m_has_new_data = false;
-    LogInfo(L"SwapBuffers: Double-buffered data swapped to UI thread safely.");
+}
+
+void CDataManager::RotateLogIfNeeded(const std::wstring& log_path)
+{
+    WIN32_FILE_ATTRIBUTE_DATA fad{};
+    if (GetFileAttributesExW(log_path.c_str(), GetFileExInfoStandard, &fad))
+    {
+        LARGE_INTEGER size;
+        size.LowPart = fad.nFileSizeLow;
+        size.HighPart = fad.nFileSizeHigh;
+        if (size.QuadPart > 1024 * 1024) // 超过 1MB 自动滚动
+        {
+            std::wstring bak_path = log_path + L".bak";
+            DeleteFileW(bak_path.c_str());
+            MoveFileExW(log_path.c_str(), bak_path.c_str(), MOVEFILE_REPLACE_EXISTING);
+        }
+    }
 }
 
 void CDataManager::LogInfo(const wchar_t* format, ...)
@@ -795,6 +906,8 @@ void CDataManager::LogInfo(const wchar_t* format, ...)
     if (dot_pos != std::wstring::npos)
         log_path = log_path.substr(0, dot_pos);
     log_path += L"_debug.log";
+
+    RotateLogIfNeeded(log_path);
 
     va_list args;
     va_start(args, format);
@@ -816,5 +929,6 @@ void CDataManager::LogInfo(const wchar_t* format, ...)
     if (log_file.is_open())
     {
         log_file.write(utf8_msg.data(), utf8_msg.size());
+        log_file.flush();
     }
 }
