@@ -19,12 +19,26 @@ The state test builds the real plugin with a test-access fixture. A loopback
 HTTP server returns controlled IP results and blocks a response on an event.
 64 callers race to start the actual update; only one request may begin. Thread
 creation failure and an exception are injected at ModuleTask's test-only factory.
+An exception injected inside the real update must also release the busy gate.
 Settings must remain writable while the response is blocked. That worker must
 finish with its initial API/target snapshot, even after the settings change.
 Eight readers then inspect snapshots and getter strings during 20 updates.
 Previously returned pointers on the host thread must remain unchanged.
 Finally, the host releases its DLL reference during a real blocked HTTP request
 and checks eventual unloading after releasing the response.
+
+Both actual settings pages are also created as hidden test windows. Their real
+test buttons start requests against the loopback server (a local HTTP proxy for
+the proxy page). The UI thread destroys each page before releasing the response.
+The page must release its result state while the worker still owns it, and the
+DLL must unload after the result has been discarded. The workers capture no
+HWND/CWnd and post no pointer-bearing messages. A short WM_TIMER poll runs only
+while the page owns an active result; existing displayed results are unchanged.
+The proxy page's real timer handler is also exercised with a completed loopback
+request and an injected launch failure; its status and button must be restored.
+
+Each native test process has a 30-second watchdog and separate stdout/stderr
+logs. A deadlock fails the test rather than hanging the runner indefinitely.
 
 No public internet endpoints are used by these successful tests. They do not
 call LoadConfig or SaveConfig and do not read or write a user's INI.
@@ -68,3 +82,9 @@ The installed MSVC std::thread implementation also calls _beginthreadex, and the
 inspected UCRT implementation already retains the procedure's module. The
 explicit helper avoids depending on that implementation detail or using detach
 without a locally checked lifetime guarantee.
+
+References:
+
+- [GetModuleHandleEx](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandleexw)
+- [FreeLibraryAndExitThread](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-freelibraryandexitthread)
+- [DLL best practices and loader lock](https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-best-practices)

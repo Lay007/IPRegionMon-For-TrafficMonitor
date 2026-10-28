@@ -785,6 +785,9 @@ static void AppendWrappedList(std::wstring& out, const std::vector<std::pair<std
 static std::wstring FormatItemTextHelper(bool is_proxy, const std::wstring& place, const std::wstring& ip, const std::wstring& isp, const std::vector<CDataManager::LatencyResult>& lats, int fmt);
 void CDataManager::UpdateIpInfoNow()
 {
+#ifdef IPREGIONMON_TESTING
+    if (m_fail_update_for_test.exchange(false)) throw std::bad_alloc();
+#endif
     const auto snapshot = GetSnapshot();
     const auto& settings = snapshot.settings;
     const auto& previous = snapshot.results;

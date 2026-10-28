@@ -93,9 +93,12 @@ struct Api
     BOOL (*busy)();
     void (*swap)();
     void (*failure)(int);
+    void (*failUpdate)();
     int (*state)();
     const wchar_t* (*text)();
     const wchar_t* (*tooltip)();
+    BOOL (*closeDialog)(const wchar_t*, BOOL, HANDLE);
+    BOOL (*completeProxy)(const wchar_t*);
     explicit Api(const wchar_t* path)
     {
         module = LoadLibraryW(path);
@@ -104,7 +107,10 @@ struct Api
         RESOLVE(configure, "TestConfigure"); RESOLVE(update, "TestUpdate");
         RESOLVE(busy, "TestBusy"); RESOLVE(swap, "TestSwap");
         RESOLVE(failure, "TestFailure"); RESOLVE(state, "TestState");
+        RESOLVE(failUpdate, "TestFailUpdate");
         RESOLVE(text, "TestText"); RESOLVE(tooltip, "TestTooltip");
+        RESOLVE(closeDialog, "TestCloseDialog");
+        RESOLVE(completeProxy, "TestCompleteProxy");
 #undef RESOLVE
     }
     void Finish()
@@ -137,6 +143,10 @@ int wmain(int argc, wchar_t** argv)
             Check(!api.busy(), "launch failure left busy flag set");
         }
         api.failure(0);
+        api.failUpdate();
+        api.update();
+        api.Finish();
+        Check(server.ipRequests == 0, "injected worker exception was not exercised");
         server.Arm();
         HANDLE go = CreateEventW(nullptr, TRUE, FALSE, nullptr);
         std::vector<std::thread> callers;
@@ -194,7 +204,26 @@ int wmain(int argc, wchar_t** argv)
         Check(GetModuleHandleW(argv[1]) != nullptr, "DLL unloaded with an active request");
         SetEvent(server.release);
         WaitUnloaded(argv[1]);
-        std::puts("PASS: 64 simultaneous starts; launch failures; settings snapshot; 8 readers/20 updates; retained strings; real-worker DLL unload");
+        {
+            Api completed(argv[1]);
+            Check(completed.completeProxy(server.base.c_str()) != FALSE,
+                "proxy-page completion or launch failure did not restore its controls");
+            FreeLibrary(completed.module);
+            WaitUnloaded(argv[1]);
+        }
+        for (BOOL proxy : { FALSE, TRUE })
+        {
+            Api window(argv[1]);
+            window.configure(server.base.c_str(), FALSE);
+            server.Arm();
+            Check(window.closeDialog(server.base.c_str(), proxy, server.received) != FALSE,
+                "closing the settings page did not detach its active result");
+            FreeLibrary(window.module);
+            Check(GetModuleHandleW(argv[1]) != nullptr, "settings worker lost its DLL");
+            SetEvent(server.release);
+            WaitUnloaded(argv[1]);
+        }
+        std::puts("PASS: 64 simultaneous starts; launch/worker failures; settings snapshot; 8 readers/20 updates; retained strings; real-worker DLL unload; proxy-page result delivery; close both settings pages during requests");
         return 0;
     }
     catch (const std::exception& error)

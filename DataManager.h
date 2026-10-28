@@ -100,7 +100,7 @@ public:
     int GetRefreshCountdownSec() const;
     std::wstring GetLastUpdateStatusString() const;
     std::wstring FormatItemText(bool is_proxy) const;
-    // Valid until the next call to the same getter on this OS thread, or unload.
+    // Valid until this thread calls the same getter again, exits, or DLL unloads.
     const wchar_t* GetFormattedItemText(bool is_proxy) const;
     const wchar_t* GetTooltipText() const;
 
@@ -131,4 +131,7 @@ private:
     std::atomic<ULONGLONG> m_last_ip_update_tick{ 0 };
     SYSTEMTIME m_last_update_time{};
     int m_direct_fail_count{ 0 }, m_proxy_fail_count{ 0 };
+#ifdef IPREGIONMON_TESTING
+    std::atomic<bool> m_fail_update_for_test{ false };
+#endif
 };

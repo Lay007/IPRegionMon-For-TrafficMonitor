@@ -1,6 +1,6 @@
 #include "pch.h"
 #include "OptionsDlg.h"
-#include <thread>
+
 #include <uxtheme.h>
 
 // ====================================================================
@@ -32,7 +32,7 @@ BEGIN_MESSAGE_MAP(CTabProxyApiDlg, CModernSubDlg)
     ON_BN_CLICKED(IDC_TEST_PROXY_BUTTON,  &CTabProxyApiDlg::OnBnClickedTestProxy)
     ON_CBN_SELCHANGE(IDC_DISPLAY_FORMAT_COMBO, &CTabProxyApiDlg::OnCbnSelchangeDisplayFormat)
     ON_WM_TIMER()
-    ON_MESSAGE(WM_TEST_PROXY_DONE,        &CTabProxyApiDlg::OnTestProxyDone)
+    ON_WM_DESTROY()
 END_MESSAGE_MAP()
 
 BOOL CTabProxyApiDlg::OnInitDialog()
@@ -123,48 +123,56 @@ void CTabProxyApiDlg::OnBnClickedTestProxy()
     CString proxy;
     m_edtProxy.GetWindowTextW(proxy);
     std::wstring proxy_str = proxy.GetString();
-
     m_btnTestProxy.EnableWindow(FALSE);
     m_stcTestProxyStatus.SetWindowTextW(L"正在测试代理服务器连通性…");
-
-    HWND hWnd = m_hWnd;
-    std::thread([hWnd, proxy_str]() {
-        std::wstring msg;
-        double ms = -1.0;
-        bool ok = g_data.TestProxyConnectivity(proxy_str, msg, ms);
-
-        if (::IsWindow(hWnd))
-        {
-            wchar_t res[256];
-            if (ok)
-            {
-                swprintf_s(res, L"✓ 代理连接正常！握手耗时: %.0f ms", ms);
-            }
-            else
-            {
-                swprintf_s(res, L"✗ 代理连接失败: %s", msg.c_str());
-            }
-
-            wchar_t* pRes = _wcsdup(res);
-            ::PostMessageW(hWnd, WM_TEST_PROXY_DONE, (WPARAM)pRes, 0);
-        }
-    }).detach();
-}
-
-LRESULT CTabProxyApiDlg::OnTestProxyDone(WPARAM wParam, LPARAM /*lParam*/)
-{
-    wchar_t* pRes = (wchar_t*)wParam;
-    if (pRes)
+    try
     {
-        m_stcTestProxyStatus.SetWindowTextW(pRes);
-        free(pRes);
+        m_testResult = AsyncTextResult::Start([proxy_str]() {
+            std::wstring msg;
+            double ms = -1.0;
+            bool ok = g_data.TestProxyConnectivity(proxy_str, msg, ms);
+            wchar_t res[256]{};
+            if (ok)
+                swprintf_s(res, L"✓ 代理连接正常！握手耗时: %.0f ms", ms);
+            else
+                swprintf_s(res, L"✗ 代理连接失败: %s", msg.c_str());
+            return std::wstring(res);
+        });
     }
-    m_btnTestProxy.EnableWindow(TRUE);
-    return 0;
+    catch (...) { m_testResult.reset(); }
+    if (!m_testResult || !SetTimer(3, 100, nullptr))
+    {
+        m_testResult.reset();
+        OnTestProxyDone(L"✗ 代理连接失败: 无法启动后台任务");
+    }
 }
 
+void CTabProxyApiDlg::OnTestProxyDone(const std::wstring& message)
+{
+    m_stcTestProxyStatus.SetWindowTextW(message.empty()
+        ? L"✗ 代理连接失败: 后台请求失败" : message.c_str());
+    m_btnTestProxy.EnableWindow(TRUE);
+}
+
+void CTabProxyApiDlg::OnDestroy()
+{
+    KillTimer(3);
+    m_testResult.reset();
+    CModernSubDlg::OnDestroy();
+}
 void CTabProxyApiDlg::OnTimer(UINT_PTR nIDEvent)
 {
+    if (nIDEvent == 3)
+    {
+        std::wstring message;
+        if (m_testResult && m_testResult->Take(message))
+        {
+            KillTimer(3);
+            m_testResult.reset();
+            OnTestProxyDone(message);
+        }
+        return;
+    }
     if (nIDEvent == 1)
     {
         // 探测完成检测
@@ -251,7 +259,8 @@ BEGIN_MESSAGE_MAP(CTabLatencyDlg, CModernSubDlg)
     ON_NOTIFY(NM_CLICK,   IDC_LATENCY_LIST, &CTabLatencyDlg::OnNMClickList)
     ON_NOTIFY(NM_DBLCLK,  IDC_LATENCY_LIST, &CTabLatencyDlg::OnNMDblclkList)
     ON_WM_SIZE()
-    ON_MESSAGE(WM_TEST_LATENCY_DONE,   &CTabLatencyDlg::OnTestLatencyDone)
+    ON_WM_TIMER()
+    ON_WM_DESTROY()
 END_MESSAGE_MAP()
 
 BOOL CTabLatencyDlg::OnInitDialog()
@@ -471,42 +480,56 @@ void CTabLatencyDlg::OnBnClickedTest()
     std::wstring proxy = settings.use_proxy ? settings.proxy_address : L"";
 
     m_btnTest.EnableWindow(FALSE);
-    HWND hWnd = m_hWnd;
-
-    std::thread([hWnd, url, proxy, idx]() {
-        double dMs = -1.0;
-        CDataManager::MeasureLatencyMs(url, L"", true, dMs);
-
-        double pMs = -1.0;
-        if (!proxy.empty())
-        {
-            CDataManager::MeasureLatencyMs(url, proxy, false, pMs);
-        }
-
-        if (::IsWindow(hWnd))
-        {
-            wchar_t res[256];
+    try
+    {
+        m_testResult = AsyncTextResult::Start([url, proxy]() {
+            double dMs = -1.0, pMs = -1.0;
+            CDataManager::MeasureLatencyMs(url, L"", true, dMs);
+            if (!proxy.empty())
+                CDataManager::MeasureLatencyMs(url, proxy, false, pMs);
+            wchar_t res[256]{};
             swprintf_s(res, L"测速完成: 直连 %.0f ms | 代理 %.0f ms", dMs, pMs);
-            wchar_t* pRes = _wcsdup(res);
-            ::PostMessageW(hWnd, WM_TEST_LATENCY_DONE, (WPARAM)pRes, 0);
-        }
-    }).detach();
+            return std::wstring(res);
+        });
+    }
+    catch (...) { m_testResult.reset(); }
+    if (!m_testResult || !SetTimer(3, 100, nullptr))
+    {
+        m_testResult.reset();
+        OnTestLatencyDone(L"无法启动后台任务");
+    }
 }
 
-LRESULT CTabLatencyDlg::OnTestLatencyDone(WPARAM wParam, LPARAM /*lParam*/)
+void CTabLatencyDlg::OnTimer(UINT_PTR nIDEvent)
 {
-    wchar_t* pRes = (wchar_t*)wParam;
-    if (pRes)
+    if (nIDEvent == 3)
     {
-        AfxMessageBox(pRes, MB_ICONINFORMATION);
-        free(pRes);
+        std::wstring message;
+        if (m_testResult && m_testResult->Take(message))
+        {
+            KillTimer(3);
+            m_testResult.reset();
+            OnTestLatencyDone(message);
+        }
+        return;
     }
+    CModernSubDlg::OnTimer(nIDEvent);
+}
+
+void CTabLatencyDlg::OnDestroy()
+{
+    KillTimer(3);
+    m_testResult.reset();
+    CModernSubDlg::OnDestroy();
+}
+
+void CTabLatencyDlg::OnTestLatencyDone(const std::wstring& message)
+{
     m_btnTest.EnableWindow(TRUE);
+    AfxMessageBox(message.empty() ? L"后台请求失败" : message.c_str(), MB_ICONINFORMATION);
     RefreshList();
     AdjustColumnWidths();
-    return 0;
 }
-
 void CTabLatencyDlg::GetData(SettingData& out) const
 {
     out.latency_targets = m_targets;
