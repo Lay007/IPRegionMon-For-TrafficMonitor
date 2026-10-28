@@ -288,6 +288,16 @@
   <ItemGroup>
     <None Include="README.md" />
   </ItemGroup>
+  <ItemDefinitionGroup Condition="'$(IPRegionMonConcurrencyTests)'=='true'">
+    <ClCompile>
+      <PreprocessorDefinitions>IPREGIONMON_TESTING;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup Condition="'$(IPRegionMonConcurrencyTests)'=='true'">
+    <ClCompile Include="tests\concurrency\plugin_fixture.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
