@@ -4,6 +4,7 @@
 #include <stdarg.h>
 #include <fstream>
 #include "ModuleTask.h"
+#include "BoundedHttp.h"
 
 #pragma comment(lib, "winhttp.lib")
 
@@ -226,149 +227,46 @@ static std::vector<std::wstring> GetJsonArrayStrings(const std::wstring& json, c
 // 通过 WinHTTP 进行 GET 请求
 static bool HttpGet(const std::wstring& url, const std::wstring& proxy, bool no_proxy, std::string& out)
 {
-    URL_COMPONENTSW uc{}; uc.dwStructSize = sizeof(uc);
-    wchar_t host[256]{}; wchar_t path[2048]{}; wchar_t scheme[16]{};
-    uc.lpszHostName = host; uc.dwHostNameLength = _countof(host);
-    uc.lpszUrlPath = path; uc.dwUrlPathLength = _countof(path);
-    uc.lpszScheme = scheme; uc.dwSchemeLength = _countof(scheme);
-    if (!WinHttpCrackUrl(url.c_str(), 0, 0, &uc))
-        return false;
-    bool https = (uc.nScheme == INTERNET_SCHEME_HTTPS);
-    std::wstring sHost(uc.lpszHostName, uc.dwHostNameLength);
-    std::wstring sPath = (uc.dwUrlPathLength > 0) ? std::wstring(uc.lpszUrlPath, uc.dwUrlPathLength) : L"/";
-
-    DWORD accessType = WINHTTP_ACCESS_TYPE_DEFAULT_PROXY;
-    const wchar_t* pProxy = WINHTTP_NO_PROXY_NAME;
-    if (!proxy.empty())
-    {
-        accessType = WINHTTP_ACCESS_TYPE_NAMED_PROXY;
-        pProxy = proxy.c_str();
-    }
-    else if (no_proxy)
-    {
-        accessType = WINHTTP_ACCESS_TYPE_NO_PROXY;
-    }
-
-    HINTERNET hs = WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        accessType, pProxy, WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!hs) return false;
-
-    // 连接与读取超时设为 4000ms，增强容错
-    WinHttpSetTimeouts(hs, 4000, 4000, 4000, 4000);
-
-    DWORD maxRetries = 1;
-    WinHttpSetOption(hs, WINHTTP_OPTION_CONNECT_RETRIES, &maxRetries, sizeof(maxRetries));
-
-    DWORD protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
-    WinHttpSetOption(hs, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols));
-
-    HINTERNET hc = WinHttpConnect(hs, sHost.c_str(), uc.nPort, 0);
-    if (!hc) { WinHttpCloseHandle(hs); return false; }
-
-    DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
-    HINTERNET hr = WinHttpOpenRequest(hc, L"GET", sPath.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
-    if (!hr) { WinHttpCloseHandle(hc); WinHttpCloseHandle(hs); return false; }
-
-    // 自动跟踪重定向与放宽安全证书限制（兼容代理中间人/内网环境）
-    DWORD redirectOption = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
-    WinHttpSetOption(hr, WINHTTP_OPTION_REDIRECT_POLICY, &redirectOption, sizeof(redirectOption));
-    if (https)
-    {
-        DWORD secFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA |
-                         SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
-                         SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
-                         SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
-        WinHttpSetOption(hr, WINHTTP_OPTION_SECURITY_FLAGS, &secFlags, sizeof(secFlags));
-    }
-
-    BOOL ok = WinHttpSendRequest(hr, L"Connection: close\r\n", -1L, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
-    if (ok) ok = WinHttpReceiveResponse(hr, nullptr);
-
-    if (ok)
-    {
-        DWORD sz = 0;
-        do {
-            DWORD got = 0;
-            if (!WinHttpQueryDataAvailable(hr, &sz) || sz == 0) break;
-            std::string buf; buf.resize(sz);
-            if (!WinHttpReadData(hr, &buf[0], sz, &got)) break;
-            if (got == 0) break;
-            buf.resize(got);
-            out += buf;
-        } while (sz > 0);
-    }
-
-    WinHttpCloseHandle(hr); WinHttpCloseHandle(hc); WinHttpCloseHandle(hs);
-    return !out.empty();
+    double unused;
+    return BoundedHttp::Perform(url, proxy, no_proxy, false, out, unused);
 }
 
 bool CDataManager::MeasureLatencyMs(const std::wstring& url_or_host, const std::wstring& proxy, bool no_proxy, double& out_ms)
 {
-    out_ms = -1.0;
     std::wstring url = url_or_host;
-    if (url.find(L"://") == std::wstring::npos)
-        url = L"https://" + url;
-    URL_COMPONENTSW uc{}; uc.dwStructSize = sizeof(uc);
-    wchar_t host[256]{}; wchar_t path[2048]{}; wchar_t scheme[16]{};
-    uc.lpszHostName = host; uc.dwHostNameLength = _countof(host);
-    uc.lpszUrlPath = path; uc.dwUrlPathLength = _countof(path);
-    uc.lpszScheme = scheme; uc.dwSchemeLength = _countof(scheme);
-    if (!WinHttpCrackUrl(url.c_str(), 0, 0, &uc))
-        return false;
-    bool https = (uc.nScheme == INTERNET_SCHEME_HTTPS);
-    std::wstring sHost(uc.lpszHostName, uc.dwHostNameLength);
-    std::wstring sPath = (uc.dwUrlPathLength > 0) ? std::wstring(uc.lpszUrlPath, uc.dwUrlPathLength) : L"/";
-
-    DWORD accessType = WINHTTP_ACCESS_TYPE_DEFAULT_PROXY;
-    const wchar_t* pProxy = WINHTTP_NO_PROXY_NAME;
-    if (!proxy.empty())
-    {
-        accessType = WINHTTP_ACCESS_TYPE_NAMED_PROXY;
-        pProxy = proxy.c_str();
-    }
-    else if (no_proxy)
-    {
-        accessType = WINHTTP_ACCESS_TYPE_NO_PROXY;
-    }
-
-    HINTERNET hs = WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        accessType, pProxy, WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!hs) return false;
-
-    // 测速超时 1200ms
-    WinHttpSetTimeouts(hs, 1200, 1200, 1200, 1200);
-
-    DWORD maxRetries = 1;
-    WinHttpSetOption(hs, WINHTTP_OPTION_CONNECT_RETRIES, &maxRetries, sizeof(maxRetries));
-
-    DWORD protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
-    WinHttpSetOption(hs, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols));
-
-    HINTERNET hc = WinHttpConnect(hs, sHost.c_str(), uc.nPort, 0);
-    if (!hc) { WinHttpCloseHandle(hs); return false; }
-
-    DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
-    HINTERNET hr = WinHttpOpenRequest(hc, L"HEAD", sPath.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
-    if (!hr) { WinHttpCloseHandle(hc); WinHttpCloseHandle(hs); return false; }
-
-    if (https)
-    {
-        DWORD secFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA | SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
-                         SECURITY_FLAG_IGNORE_CERT_CN_INVALID | SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
-        WinHttpSetOption(hr, WINHTTP_OPTION_SECURITY_FLAGS, &secFlags, sizeof(secFlags));
-    }
-
-    ULONGLONG t0 = GetTickCount64();
-    BOOL ok = WinHttpSendRequest(hr, L"Connection: close\r\n", -1L, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
-    if (ok) ok = WinHttpReceiveResponse(hr, nullptr);
-    ULONGLONG t1 = GetTickCount64();
-
-    if (ok)
-        out_ms = static_cast<double>(t1 - t0);
-
-    WinHttpCloseHandle(hr); WinHttpCloseHandle(hc); WinHttpCloseHandle(hs);
-    return ok == TRUE;
+    if (url.find(L"://") == std::wstring::npos) url = L"https://" + url;
+    std::string unused;
+    return BoundedHttp::Perform(url, proxy, no_proxy, true, unused, out_ms);
 }
+
+#ifdef IPREGIONMON_TESTING
+extern "C" __declspec(dllexport) BOOL TestNetworkRequest(const wchar_t* url, BOOL head,
+    DWORD* error, DWORD* bytes)
+{
+    std::string body;
+    double latency;
+    const bool ok = head ? CDataManager::MeasureLatencyMs(url, L"", true, latency) :
+        HttpGet(url, L"", true, body);
+    *error = ok ? ERROR_SUCCESS : GetLastError();
+    *bytes = static_cast<DWORD>(body.size());
+    return ok;
+}
+
+extern "C" __declspec(dllexport) BOOL TestNetworkStart(const wchar_t* url, HANDLE completed)
+{
+    return ModuleTask::Start([url = std::wstring(url), completed]() {
+        std::string body;
+        HttpGet(url, L"", true, body);
+        SetEvent(completed);
+    });
+}
+
+extern "C" __declspec(dllexport) void TestNetworkHoldCallback(HANDLE entered, HANDLE release)
+{
+    BoundedHttp::CallbackTest().release = release;
+    BoundedHttp::CallbackTest().entered = entered;
+}
+#endif
 
 bool CDataManager::TestProxyConnectivity(const std::wstring& proxy, std::wstring& out_message, double& out_ms)
 {
