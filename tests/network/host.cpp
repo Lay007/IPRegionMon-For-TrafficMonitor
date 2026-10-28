@@ -28,13 +28,17 @@ class Server
         char request[4096];
         if (recv(client, request, sizeof(request), 0) <= 0) { closesocket(client); return; }
         SetEvent(received);
-        const std::string response = mode == "normal" ?
+        const std::string response = mode == "large" ?
+            "HTTP/1.1 200 OK\r\nContent-Length: 1048577\r\nConnection: close\r\n\r\n" :
+            mode == "redirect" ? "HTTP/1.1 302 Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n" :
+            mode == "normal" ?
             "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok" :
             mode == "truncated" ? "HTTP/1.1 200 OK\r\nContent-Length: 99\r\n\r\npartial" :
             "HTTP/1.1 200 OK\r\nContent-Length: 999999\r\nConnection: close\r\n\r\n";
         if (mode != "silent" && mode != "headers")
             send(client, response.data(), static_cast<int>(response.size()), 0);
-        if (mode == "normal" || mode == "truncated") { closesocket(client); return; }
+        if (mode == "normal" || mode == "truncated" || mode == "large" || mode == "redirect")
+        { closesocket(client); return; }
         const ULONGLONG start = GetTickCount64();
         size_t index = 0;
         while (WaitForSingleObject(stopping, 50) == WAIT_TIMEOUT && GetTickCount64() - start < 6500)
@@ -98,7 +102,9 @@ static void Test(Request request, const std::string& mode, bool head)
     else
     {
         Check(!ok && bytes == 0, "incomplete response accepted or leaked partial output");
-        if (mode != "truncated")
+        if (mode == "large") Check(error == ERROR_FILE_TOO_LARGE, "oversized body was not rejected");
+        else if (mode == "redirect") Check(error == 12156, "unfollowed redirect accepted");
+        else if (mode != "truncated")
         {
             Check(elapsed >= (head ? 900ULL : 3500ULL) && elapsed < (head ? 2200ULL : 5500ULL),
                 "full request deadline not enforced");
@@ -128,6 +134,29 @@ int wmain(int argc, wchar_t** argv)
         auto request = reinterpret_cast<Request>(GetProcAddress(module, "TestNetworkRequest"));
         auto start = reinterpret_cast<Start>(GetProcAddress(module, "TestNetworkStart"));
         Check(request && start, "test exports missing");
+        if (argc == 5 && std::wstring(argv[2]) == L"--probe")
+        {
+            std::wstring expectation = argv[4];
+            const bool getOnly = expectation.size() > 4 &&
+                expectation.substr(expectation.size() - 4) == L"-get";
+            if (getOnly) expectation.resize(expectation.size() - 4);
+            for (BOOL head : { FALSE, TRUE })
+            {
+                if (head && getOnly) continue;
+                DWORD error = 0, bytes = 0;
+                const ULONGLONG before = GetTickCount64();
+                const bool ok = request(argv[3], head, &error, &bytes) != FALSE;
+                std::printf("%s probe: ok=%d error=%lu bytes=%lu elapsed=%llu ms\n",
+                    head ? "HEAD" : "GET", ok, error, bytes, GetTickCount64() - before);
+                if (expectation == L"invalid-cert")
+                    Check(!ok && error == 12175 && bytes == 0, "invalid certificate was not rejected as a TLS error");
+                else if (expectation == L"no-downgrade")
+                    Check(!ok && error == 12156 && bytes == 0, "HTTPS downgrade was not rejected as a redirect error");
+                else Check(ok, "valid HTTPS probe failed");
+            }
+            FreeLibrary(module);
+            return 0;
+        }
         if (argc == 5 && std::wstring(argv[2]) == L"--exit-child")
         {
             HANDLE completed = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -146,6 +175,8 @@ int wmain(int argc, wchar_t** argv)
         Test(request, "headers", false); Test(request, "headers", true);
         Test(request, "silent", false); Test(request, "silent", true);
         Test(request, "truncated", false);
+        Test(request, "large", false);
+        Test(request, "redirect", false); Test(request, "redirect", true);
         DWORD error = 0, bytes = 0;
         const ULONGLONG before = GetTickCount64();
         Check(!request(L"http://127.0.0.1:1/", FALSE, &error, &bytes) && bytes == 0,

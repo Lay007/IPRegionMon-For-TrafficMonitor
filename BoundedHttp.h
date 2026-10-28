@@ -109,23 +109,25 @@ namespace BoundedHttp
             if (!WinHttpSetOption(session, WINHTTP_OPTION_CONNECT_RETRIES, &retries, sizeof(retries)))
                 return GetLastError();
             DWORD protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
-            WinHttpSetOption(session, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols));
+            if (!WinHttpSetOption(session, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols)))
+            {
+                // Older Windows may not support TLS 1.3; never fall back to the
+                // OS's potentially older default protocols if this option fails.
+                protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
+                if (!WinHttpSetOption(session, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols)))
+                    return GetLastError();
+            }
             connection = WinHttpConnect(session, host.c_str(), parts.nPort, 0);
             if (!connection) return GetLastError();
             request = WinHttpOpenRequest(connection, head ? L"HEAD" : L"GET", path.c_str(), nullptr,
                 WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, secure ? WINHTTP_FLAG_SECURE : 0);
             if (!request) return GetLastError();
-            if (!head)
-            {
-                DWORD redirects = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
-                WinHttpSetOption(request, WINHTTP_OPTION_REDIRECT_POLICY, &redirects, sizeof(redirects));
-            }
-            if (secure)
-            {
-                DWORD flags = SECURITY_FLAG_IGNORE_UNKNOWN_CA | SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
-                    SECURITY_FLAG_IGNORE_CERT_CN_INVALID | SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
-                WinHttpSetOption(request, WINHTTP_OPTION_SECURITY_FLAGS, &flags, sizeof(flags));
-            }
+            // Keep WinHTTP's certificate validation intact, including through
+            // an explicit HTTP CONNECT proxy. A trusted corporate CA belongs in
+            // Windows trust policy, not in an ignore-certificate-errors flag.
+            DWORD redirects = WINHTTP_OPTION_REDIRECT_POLICY_DISALLOW_HTTPS_TO_HTTP;
+            if (!WinHttpSetOption(request, WINHTTP_OPTION_REDIRECT_POLICY, &redirects, sizeof(redirects)))
+                return GetLastError();
             DWORD_PTR context = reinterpret_cast<DWORD_PTR>(this);
             if (!WinHttpSetOption(request, WINHTTP_OPTION_CONTEXT_VALUE, &context, sizeof(context)))
                 return GetLastError();
@@ -141,10 +143,14 @@ namespace BoundedHttp
             error = Wait(WinHttpReceiveResponse(request, nullptr), WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE);
             if (error) return error;
             latency = static_cast<double>(GetTickCount64() - sent);
-            if (head) return ERROR_SUCCESS;
             DWORD code{}, length = sizeof(code);
             if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
                 WINHTTP_HEADER_NAME_BY_INDEX, &code, &length, WINHTTP_NO_HEADER_INDEX)) return GetLastError();
+            // A redirect left unhandled by the policy must not look like a
+            // successful latency sample (notably an HTTPS-to-HTTP redirect).
+            if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308)
+                return ERROR_WINHTTP_REDIRECT_FAILED;
+            if (head) return ERROR_SUCCESS;
             if (code < 200 || code >= 300) return ERROR_WINHTTP_INVALID_SERVER_RESPONSE;
             wchar_t contentLength[32]{};
             length = sizeof(contentLength);

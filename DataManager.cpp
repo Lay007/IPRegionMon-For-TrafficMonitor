@@ -300,8 +300,8 @@ bool CDataManager::TestProxyConnectivity(const std::wstring& proxy, std::wstring
 
 CDataManager::CDataManager()
 {
-    const wchar_t* kDomesticApi = L"http://ip-api.com/json/?fields=status,message,country,regionName,city,isp,query,proxy,hosting&lang=zh-CN";
-    const wchar_t* kForeignApi  = L"http://ip-api.com/json/?fields=status,message,country,regionName,city,isp,query,proxy,hosting&lang=zh-CN";
+    const wchar_t* kDomesticApi = L"https://ipwho.is/";
+    const wchar_t* kForeignApi  = L"https://ipwho.is/";
     m_setting_data.api_domestic_url = kDomesticApi;
     m_setting_data.api_foreign_url  = kForeignApi;
     m_setting_data.use_proxy = false;
@@ -397,8 +397,8 @@ void CDataManager::LoadConfig(const std::wstring& config_dir)
     if (!domestic.empty()) settings.api_domestic_url = domestic; else if (!settings.api_url.empty()) settings.api_domestic_url = settings.api_url;
     if (!foreign.empty())  settings.api_foreign_url  = foreign;  else if (!settings.api_url.empty()) settings.api_foreign_url  = settings.api_url;
 
-    const wchar_t* kDomesticApi = L"http://ip-api.com/json/?fields=status,message,country,regionName,city,isp,query,proxy,hosting&lang=zh-CN";
-    const wchar_t* kForeignApi  = L"http://ip-api.com/json/?fields=status,message,country,regionName,city,isp,query,proxy,hosting&lang=zh-CN";
+    const wchar_t* kDomesticApi = L"https://ipwho.is/";
+    const wchar_t* kForeignApi  = L"https://ipwho.is/";
     if (settings.api_domestic_url.empty() || settings.api_domestic_url.find(L"ipip.net") != std::wstring::npos)
         settings.api_domestic_url = kDomesticApi;
     if (settings.api_foreign_url.empty())  settings.api_foreign_url  = kForeignApi;
@@ -606,9 +606,8 @@ bool CDataManager::FetchIpInfoWithFallback(const std::wstring& preferredUrl, boo
 
     // 默认高可用源候选池
     const wchar_t* fallbackPool[] = {
-        L"http://ip-api.com/json/?fields=status,message,country,regionName,city,isp,query,proxy,hosting&lang=zh-CN",
-        L"https://api.ip.sb/geoip",
         L"https://ipwho.is/",
+        L"https://api.ip.sb/geoip",
         L"https://ipinfo.io/json"
     };
 

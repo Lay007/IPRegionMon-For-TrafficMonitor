@@ -73,7 +73,10 @@ the dynamically linked CRT (/MD or /MDd), which performs per-thread cleanup on
 native thread exit. There is no join, wait or I/O from a DLL destructor.
 
 An ordinary FreeLibrary request therefore defers unloading until existing tasks
-finish. It does not cancel an in-flight request or bound its total duration.
+finish. It does not itself cancel an in-flight request. GET and HEAD now have
+per-request deadlines and drain WinHTTP callbacks before releasing task state;
+see [network tests](../network/README.md). An entire sequential update may take
+longer than one request budget because it includes fallback sources and targets.
 The host must stop issuing plugin calls before releasing its own reference.
 Pointers returned by the plugin cannot survive actual module unloading.
 Forced process termination is not a graceful task-shutdown mechanism.
