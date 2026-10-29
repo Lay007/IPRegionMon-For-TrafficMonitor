@@ -103,6 +103,8 @@ public:
     std::wstring FormatItemText(bool is_proxy) const;
     // Valid until this thread calls the same getter again, exits, or DLL unloads.
     const wchar_t* GetFormattedItemText(bool is_proxy) const;
+    const wchar_t* GetItemValueSampleText(bool is_proxy) const;
+    void SetDrawContext(bool taskbar);
     const wchar_t* GetTooltipText() const;
 
     bool TestProxyConnectivity(const std::wstring& proxy, std::wstring& out_message, double& out_ms);
@@ -121,7 +123,10 @@ private:
     ResultSnapshot m_results, m_pending;
     std::wstring m_config_path;
     std::map<std::pair<LANGID, UINT>, std::wstring> m_string_table;
-    struct ReaderText { std::wstring direct, proxy, tooltip; };
+    struct ReaderText {
+        std::wstring direct, proxy, tooltip, sample_direct, sample_proxy;
+        bool taskbar{ false };
+    };
     // No non-trivial thread_local destructors may outlive an unloaded DLL.
     mutable std::map<DWORD, ReaderText> m_reader_texts;
     mutable std::mutex m_swap_mutex;

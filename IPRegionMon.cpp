@@ -67,6 +67,9 @@ void CIPRegionMon::OnExtenedInfo(ExtendedInfoIndex index, const wchar_t* data)
     AFX_MANAGE_STATE(AfxGetStaticModuleState());
     switch (index)
     {
+    case ITMPlugin::EI_DRAW_TASKBAR_WND:
+        g_data.SetDrawContext(data && data[0] == L'1');
+        break;
     case ITMPlugin::EI_CONFIG_DIR:
         g_data.LoadConfig(std::wstring(data));
         m_config_ready = true;

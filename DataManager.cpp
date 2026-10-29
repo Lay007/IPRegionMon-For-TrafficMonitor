@@ -886,7 +886,32 @@ void CDataManager::UpdateIpInfoNow()
 
 }
 
-static std::wstring FormatItemTextHelper(bool is_proxy, const std::wstring& place, const std::wstring& ip, const std::wstring& isp, const std::vector<CDataManager::LatencyResult>& lats, int fmt)
+// Units bound taskbar compactness, not pixels. The host measures the actual
+// returned sample in its own font and DPI. Keep UTF-16 pairs and combining
+// accents intact when eliding; the full source data remains in the snapshot.
+static std::wstring CompactDisplayText(const std::wstring& value, size_t limit)
+{
+    size_t position = 0, units = 0, cut = 0;
+    while (position < value.size())
+    {
+        const wchar_t character = value[position];
+        const bool pair = character >= 0xd800 && character <= 0xdbff &&
+            position + 1 < value.size() && value[position + 1] >= 0xdc00 && value[position + 1] <= 0xdfff;
+        units += pair || character >= 0x2e80 ? 2 : 1;
+        position += pair ? 2 : 1;
+        if (units < limit) cut = position;
+    }
+    if (units <= limit) return value;
+    WORD kind = 0;
+    while (cut && cut < value.size() && GetStringTypeW(CT_CTYPE3, &value[cut], 1, &kind) &&
+        (kind & (C3_NONSPACING | C3_DIACRITIC))) --cut;
+    if (cut && cut < value.size() && value[cut - 1] >= 0xd800 && value[cut - 1] <= 0xdbff &&
+        value[cut] >= 0xdc00 && value[cut] <= 0xdfff) --cut;
+    while (cut && (value[cut - 1] == L' ' || value[cut - 1] == L'\x200d')) --cut;
+    return value.substr(0, cut) + L"\u2026";
+}
+
+static std::wstring FormatItemTextRaw(bool is_proxy, const std::wstring& place, const std::wstring& ip, const std::wstring& isp, const std::vector<CDataManager::LatencyResult>& lats, int fmt)
 {
     switch (fmt)
     {
@@ -900,7 +925,7 @@ static std::wstring FormatItemTextHelper(bool is_proxy, const std::wstring& plac
 
     case DF_REGION_AND_LATENCY:
     {
-        std::wstring out = place.empty() ? ip : place;
+        std::wstring out = CompactDisplayText(place.empty() ? ip : place, 20);
         for (const auto& r : lats)
         {
             double ms = is_proxy ? r.proxy_ms : r.direct_ms;
@@ -932,6 +957,11 @@ static std::wstring FormatItemTextHelper(bool is_proxy, const std::wstring& plac
         return L"...";
     }
     }
+}
+
+static std::wstring FormatItemTextHelper(bool is_proxy, const std::wstring& place, const std::wstring& ip, const std::wstring& isp, const std::vector<CDataManager::LatencyResult>& lats, int fmt)
+{
+    return CompactDisplayText(FormatItemTextRaw(is_proxy, place, ip, isp, lats, fmt), 48);
 }
 
 SettingData CDataManager::GetSettings() const
@@ -969,9 +999,29 @@ const wchar_t* CDataManager::GetFormattedItemText(bool is_proxy) const
     std::lock_guard<std::mutex> lock(m_swap_mutex);
     auto& reader = m_reader_texts[GetCurrentThreadId()];
     auto& text = is_proxy ? reader.proxy : reader.direct;
-    const auto& value = is_proxy ? m_results.m_proxy_item_text : m_results.m_direct_item_text;
+    const auto& current = is_proxy ? m_results.m_proxy_item_text : m_results.m_direct_item_text;
+    const auto& sample = is_proxy ? reader.sample_proxy : reader.sample_direct;
+    // Hold the last measured value until the host recalculates its layout.
+    // A result published between measure and paint must not exceed that width.
+    const auto& value = reader.taskbar && !sample.empty() ? sample : current;
     text = value.empty() ? L"..." : value;
     return text.c_str();
+}
+
+const wchar_t* CDataManager::GetItemValueSampleText(bool is_proxy) const
+{
+    std::lock_guard<std::mutex> lock(m_swap_mutex);
+    auto& reader = m_reader_texts[GetCurrentThreadId()];
+    auto& sample = is_proxy ? reader.sample_proxy : reader.sample_direct;
+    const auto& value = is_proxy ? m_results.m_proxy_item_text : m_results.m_direct_item_text;
+    sample = value.empty() ? L"..." : value;
+    return sample.c_str();
+}
+
+void CDataManager::SetDrawContext(bool taskbar)
+{
+    std::lock_guard<std::mutex> lock(m_swap_mutex);
+    m_reader_texts[GetCurrentThreadId()].taskbar = taskbar;
 }
 
 const wchar_t* CDataManager::GetTooltipText() const

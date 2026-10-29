@@ -33,21 +33,24 @@ $output = Join-Path $WorkDirectory 'plugin\'
 $objects = Join-Path $WorkDirectory 'obj\'
 & (Join-Path $VsInstallPath 'MSBuild\Current\Bin\MSBuild.exe') (Join-Path $repoRoot 'IPRegionMon.vcxproj') /p:Configuration=Release /p:Platform=x64 /p:IPRegionMonConcurrencyTests=true /p:IPRegionMonLocalizationTests=true /p:PostBuildEventUseInBuild=false "/p:OutDir=$output" "/p:IntDir=$objects" /fl "/flp:logfile=$WorkDirectory\build.log" /nologo /v:minimal
 if ($LASTEXITCODE -ne 0) { throw 'Localization plugin compilation failed.' }
-$process = [Diagnostics.Process]::new()
-$process.StartInfo.FileName = Join-Path $WorkDirectory 'localization_host.exe'
-$process.StartInfo.Arguments = '"' + (Join-Path $output 'IPRegionMon.dll') + '"'
-$process.StartInfo.WorkingDirectory = $WorkDirectory
-$process.StartInfo.UseShellExecute = $false
-$process.StartInfo.CreateNoWindow = $true
-$process.StartInfo.RedirectStandardOutput = $true
-$process.StartInfo.RedirectStandardError = $true
-try {
-    [void]$process.Start()
-    $stdout = $process.StandardOutput.ReadToEndAsync()
-    $stderr = $process.StandardError.ReadToEndAsync()
-    if (!$process.WaitForExit(30000)) { $process.Kill(); $process.WaitForExit(); throw 'Localization test exceeded 30 seconds.' }
-    $text = $stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult()
-    Set-Content -LiteralPath (Join-Path $WorkDirectory 'test.log') -Value $text -Encoding UTF8
-    Write-Host $text
-    if ($process.ExitCode -ne 0) { throw "Localization test failed ($($process.ExitCode))." }
-} finally { $process.Dispose() }
+foreach ($mode in @('', ' --startup')) {
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo.FileName = Join-Path $WorkDirectory 'localization_host.exe'
+    $process.StartInfo.Arguments = '"' + (Join-Path $output 'IPRegionMon.dll') + '"' + $mode
+    $process.StartInfo.WorkingDirectory = $WorkDirectory
+    $process.StartInfo.UseShellExecute = $false
+    $process.StartInfo.CreateNoWindow = $true
+    $process.StartInfo.RedirectStandardOutput = $true
+    $process.StartInfo.RedirectStandardError = $true
+    try {
+        [void]$process.Start()
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        if (!$process.WaitForExit(30000)) { $process.Kill(); $process.WaitForExit(); throw 'Localization test exceeded 30 seconds.' }
+        $text = $stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult()
+        $logName = if ($mode) { 'startup.log' } else { 'test.log' }
+        Set-Content -LiteralPath (Join-Path $WorkDirectory $logName) -Value $text -Encoding UTF8
+        Write-Host $text
+        if ($process.ExitCode -ne 0) { throw "Localization test failed ($($process.ExitCode))." }
+    } finally { $process.Dispose() }
+}

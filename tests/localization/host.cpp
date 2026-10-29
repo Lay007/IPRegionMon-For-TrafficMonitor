@@ -20,6 +20,7 @@ class Server
     std::atomic<bool> stopping{ false };
 public:
     std::wstring base;
+    std::atomic<int> received{ 0 };
     Server()
     {
         WSADATA data{};
@@ -40,6 +41,7 @@ public:
                 if (client == INVALID_SOCKET) break;
                 char request[4096]{};
                 const int read = recv(client, request, sizeof(request) - 1, 0);
+                if (read > 0) ++received;
                 const bool get = read > 0 && std::string(request, read).find("GET ") == 0;
                 const std::string body = get ?
                     "{\"status\":\"success\",\"query\":\"198.51.100.1\",\"country\":\"\\u4e2d\\u56fd \\u4e0a\\u6d77\",\"isp\":\"Test ISP\"}" : "";
@@ -73,7 +75,7 @@ public:
 
 int wmain(int argc, wchar_t** argv)
 {
-    if (argc != 2) return 2;
+    if (argc != 2 && argc != 3) return 2;
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
     try
     {
@@ -85,14 +87,51 @@ int wmain(int argc, wchar_t** argv)
         using Configure = void (*)(const wchar_t*, BOOL);
         using Update = void (*)();
         using Busy = BOOL (*)();
+        using Width = BOOL (*)();
         const auto instance = reinterpret_cast<Instance>(GetProcAddress(module, "TMPluginGetInstance"));
         const auto smoke = reinterpret_cast<Smoke>(GetProcAddress(module, "TestLocalizedDialogs"));
         const auto configure = reinterpret_cast<Configure>(GetProcAddress(module, "TestConfigure"));
         const auto update = reinterpret_cast<Update>(GetProcAddress(module, "TestUpdate"));
         const auto busy = reinterpret_cast<Busy>(GetProcAddress(module, "TestBusy"));
         const auto swap = reinterpret_cast<Update>(GetProcAddress(module, "TestSwap"));
-        Check(instance && smoke && configure && update && busy && swap, "exports");
+        const auto width = reinterpret_cast<Width>(GetProcAddress(module, "TestTaskbarWidths"));
+        Check(instance && smoke && configure && update && busy && swap && width, "exports");
         ITMPlugin* plugin = instance();
+        if (argc == 3)
+        {
+            Check(std::wstring(argv[2]) == L"--startup", "unknown test mode");
+            // Only this fresh process receives EI_CONFIG_DIR. Keep the INI in
+            // the runner's new artifact directory, away from user settings.
+            Check(CreateDirectoryW(L"startup", nullptr) != FALSE, "create test config directory");
+            wchar_t directory[MAX_PATH]{};
+            Check(GetFullPathNameW(L"startup\\", MAX_PATH, directory, nullptr) != 0, "test config path");
+            const std::wstring ini = std::wstring(directory) + L"IPRegionMon.dll.ini";
+            const auto write = [&](const wchar_t* key, const std::wstring& value) {
+                Check(WritePrivateProfileStringW(L"ip", key, value.c_str(), ini.c_str()) != FALSE, "write test INI");
+            };
+            write(L"use_proxy", L"0");
+            write(L"api_domestic_url", server.base + L"/json");
+            write(L"api_foreign_url", server.base + L"/json");
+            write(L"latency_targets_n", L"1");
+            write(L"latency_name_0", L"loopback");
+            write(L"latency_url_0", server.base + L"/latency");
+            plugin->OnExtenedInfo(ITMPlugin::EI_CONFIG_DIR, directory);
+            Sleep(100);
+            Check(!busy() && server.received == 0, "configured worker started before host language initialization");
+            Host host;
+            host.language = 0x0804;
+            plugin->OnInitialize(&host);
+            for (int index = 0; index < 500 && busy(); ++index) Sleep(10);
+            Check(!busy() && server.received >= 2, "configured startup update did not complete");
+            swap();
+            const std::wstring tooltip = plugin->GetTooltipInfo();
+            Check(tooltip.find(L"直: ") == 0 && tooltip.find(L"最后更新:") != std::wstring::npos,
+                "first configured update used the wrong UI language");
+            Check(tooltip.find(L"中国 上海") != std::wstring::npos, "startup geography lost");
+            std::printf("PASS: EI_CONFIG_DIR before OnInitialize, first configured worker uses host language\n");
+            FreeLibrary(module);
+            return 0;
+        }
         const wchar_t* before = plugin->GetInfo(ITMPlugin::TMI_NAME);
         const std::wstring retained(before);
         Host host;
@@ -119,6 +158,7 @@ int wmain(int argc, wchar_t** argv)
             Check(tooltip.find(L"中国 上海") != std::wstring::npos, "API geography was translated");
             Check(tooltip.find(chinese ? L"最后更新:" : L"Last updated:") != std::wstring::npos, "tooltip status language");
             Check(smoke(chinese) != FALSE, "native dialog resource selection");
+            Check(width() != FALSE, "taskbar width or compact text");
             Check(GetThreadUILanguage() == threadLanguage, "host thread language changed");
             std::printf("PASS: host language %04x, native templates, metadata, retained pointer, thread locale\n", language);
         }

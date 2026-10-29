@@ -26,5 +26,6 @@ const wchar_t* CCustomDrawItem::GetItemValueText() const
 
 const wchar_t* CCustomDrawItem::GetItemValueSampleText() const
 {
-    return m_is_proxy ? L"US Los Angeles (1.1.1.1)" : L"CN 上海 (220.181.38.148)";
+    AFX_MANAGE_STATE(AfxGetStaticModuleState());
+    return g_data.GetItemValueSampleText(m_is_proxy);
 }
