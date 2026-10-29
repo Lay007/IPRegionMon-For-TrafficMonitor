@@ -2,6 +2,7 @@
 #include "IPRegionMon.h"
 #include "DataManager.h"
 #include "OptionsDlg.h"
+#include "UiLanguage.h"
 
 #include <thread>
 
@@ -68,7 +69,8 @@ void CIPRegionMon::OnExtenedInfo(ExtendedInfoIndex index, const wchar_t* data)
     {
     case ITMPlugin::EI_CONFIG_DIR:
         g_data.LoadConfig(std::wstring(data));
-        g_data.ForceUpdateAsync();
+        m_config_ready = true;
+        if (m_initialized) g_data.ForceUpdateAsync();
         break;
     default: break;
     }
@@ -78,6 +80,16 @@ const wchar_t* CIPRegionMon::GetTooltipInfo()
 {
     AFX_MANAGE_STATE(AfxGetStaticModuleState());
     return g_data.GetTooltipText();
+}
+
+void CIPRegionMon::OnInitialize(ITrafficMonitor* app)
+{
+    AFX_MANAGE_STATE(AfxGetStaticModuleState());
+    UiLanguage::Initialize(app ? app->GetLanguageId() : UiLanguage::English);
+    // v7+ hosts send EI_CONFIG_DIR before OnInitialize. Bind the UI language
+    // before the first worker can format errors or tooltip text.
+    m_initialized = true;
+    if (m_config_ready) g_data.ForceUpdateAsync();
 }
 
 ITMPlugin* TMPluginGetInstance()

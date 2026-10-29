@@ -119,7 +119,7 @@ private:
     SettingData m_setting_data;
     ResultSnapshot m_results, m_pending;
     std::wstring m_config_path;
-    std::map<UINT, std::wstring> m_string_table;
+    std::map<std::pair<LANGID, UINT>, std::wstring> m_string_table;
     struct ReaderText { std::wstring direct, proxy, tooltip; };
     // No non-trivial thread_local destructors may outlive an unloaded DLL.
     mutable std::map<DWORD, ReaderText> m_reader_texts;

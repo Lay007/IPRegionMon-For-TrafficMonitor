@@ -108,6 +108,7 @@ class CModernSubDlg : public CDialog
 public:
     CModernSubDlg(UINT nIDTemplate, CWnd* pParent = nullptr);
     virtual ~CModernSubDlg();
+    BOOL Create(UINT templateId, CWnd* parent);
 
     void AddCard(int leftDlu, int topDlu, int rightDlu, int bottomDlu, const std::wstring& title);
 

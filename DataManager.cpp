@@ -5,6 +5,7 @@
 #include <fstream>
 #include "ModuleTask.h"
 #include "BoundedHttp.h"
+#include "UiLanguage.h"
 
 #pragma comment(lib, "winhttp.lib")
 
@@ -452,17 +453,13 @@ void CDataManager::SaveConfig() const
 const wchar_t* CDataManager::StringRes(UINT id)
 {
     std::lock_guard<std::mutex> lock(m_swap_mutex);
-    auto it = m_string_table.find(id);
-    if (it != m_string_table.end()) return it->second.c_str();
-#ifdef AFX_MANAGE_STATE
-    AFX_MANAGE_STATE(AfxGetStaticModuleState());
-    HINSTANCE hResInst = AfxGetResourceHandle();
-#else
-    HINSTANCE hResInst = reinterpret_cast<HINSTANCE>(&__ImageBase);
-#endif
-    wchar_t buf[256]{};
-    if (::LoadStringW(hResInst, id, buf, _countof(buf)) > 0) { m_string_table[id] = buf; return m_string_table[id].c_str(); }
-    static const wchar_t* empty = L""; return empty;
+    const auto key = std::make_pair(UiLanguage::Get(), id);
+    auto it = m_string_table.find(key);
+    if (it == m_string_table.end())
+        it = m_string_table.emplace(key, UiLanguage::Text(id, key.first)).first;
+    // Cache entries are never replaced, so previously returned pointers survive
+    // initialization and reads in another supported language.
+    return it->second.c_str();
 }
 
 bool CDataManager::FetchIpInfoByUrl(const std::wstring& url, bool use_proxy, const std::wstring& proxy_address, std::wstring& out_place, std::wstring& out_ip, std::wstring& out_isp, IpThreatInfo& out_threat)

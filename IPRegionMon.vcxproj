@@ -261,6 +261,7 @@
     <ClInclude Include="DataManager.h" />
     <ClInclude Include="ModuleTask.h" />
     <ClInclude Include="BoundedHttp.h" />
+    <ClInclude Include="UiLanguage.h" />
     <ClInclude Include="AsyncTextResult.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="IPRegionMon.h" />
@@ -272,6 +273,7 @@
   <ItemGroup>
     <ClCompile Include="CustomDrawItem.cpp" />
     <ClCompile Include="DataManager.cpp" />
+    <ClCompile Include="UiLanguage.cpp" />
     <ClCompile Include="IPRegionMon.cpp" />
     <ClCompile Include="OptionsDlg.cpp" />
     <ClCompile Include="ModernUI.cpp" />
@@ -297,6 +299,11 @@
   </ItemDefinitionGroup>
   <ItemGroup Condition="'$(IPRegionMonConcurrencyTests)'=='true'">
     <ClCompile Include="tests\concurrency\plugin_fixture.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup Condition="'$(IPRegionMonLocalizationTests)'=='true'">
+    <ClCompile Include="tests\localization\locale_fixture.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
   </ItemGroup>

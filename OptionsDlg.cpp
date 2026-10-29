@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "OptionsDlg.h"
+#include "UiLanguage.h"
 
 #include <uxtheme.h>
 
@@ -730,11 +731,12 @@ void CTabStatusDlg::OnBnClickedCopyAll()
 IMPLEMENT_DYNAMIC(COptionsDlg, CDialog)
 
 COptionsDlg::COptionsDlg(CWnd* pParent)
-    : CDialog(IDD_OPTIONS_DIALOG, pParent)
+    : CDialog()
     , m_pageProxyApi(this)
     , m_pageLatency(this)
     , m_pageStatus(this)
 {
+    InitModalIndirect(UiLanguage::Dialog(IDD_OPTIONS_DIALOG), pParent);
     m_pages[0] = &m_pageProxyApi;
     m_pages[1] = &m_pageLatency;
     m_pages[2] = &m_pageStatus;

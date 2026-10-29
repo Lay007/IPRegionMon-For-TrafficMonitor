@@ -10,6 +10,7 @@
 #define IDS_CUSTOM_DRAW_ITEM            107
 #define IDS_DIRECT_ITEM_NAME            108
 #define IDS_PROXY_ITEM_NAME             109
+#define IDS_UI_FONT                     2000
 #define IDC_SHOW_SECOND_CHECK           1001
 #define IDC_SHOW_LABEL_CHECK            1002
 

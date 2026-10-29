@@ -136,6 +136,7 @@ BEGIN
     IDS_CUSTOM_DRAW_ITEM    "IP"
     IDS_DIRECT_ITEM_NAME    "IP (直连)"
     IDS_PROXY_ITEM_NAME     "IP (代理)"
+    IDS_UI_FONT            "Microsoft YaHei UI"
 END
 
 #endif
@@ -225,6 +226,7 @@ BEGIN
     IDS_CUSTOM_DRAW_ITEM    "IP"
     IDS_DIRECT_ITEM_NAME    "IP (Direct)"
     IDS_PROXY_ITEM_NAME     "IP (Proxy)"
+    IDS_UI_FONT            "Segoe UI"
 END
 
 #endif
