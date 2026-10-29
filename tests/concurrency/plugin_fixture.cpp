@@ -54,7 +54,7 @@ struct ConcurrencyTestAccess
                 page.m_stcTestProxyStatus.GetWindowTextW(message);
                 passed = passed && !page.m_testResult &&
                     page.m_btnTestProxy.IsWindowEnabled() &&
-                    message.Find(L"✗ 代理连接失败:") == 0;
+                    message.Find(L"Proxy connection failed:") == 0;
                 page.DestroyWindow();
             }
         }

@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $PSNativeCommandUseErrorActionPreference = $false
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+& (Join-Path $PSScriptRoot 'Verify-Resources.ps1')
 if (!$WorkDirectory) { $WorkDirectory = Join-Path $repoRoot ('Bin\localization-' + [Guid]::NewGuid().ToString('N')) }
 $WorkDirectory = [IO.Path]::GetFullPath($WorkDirectory)
 if (Test-Path -LiteralPath $WorkDirectory) { throw 'Choose a new output directory.' }

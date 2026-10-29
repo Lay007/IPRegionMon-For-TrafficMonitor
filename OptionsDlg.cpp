@@ -41,17 +41,17 @@ BOOL CTabProxyApiDlg::OnInitDialog()
     CModernSubDlg::OnInitDialog();
 
     // 注册三大现代圆角卡片 (DLU 坐标)
-    AddCard(0, 0, 426, 54, L"展示偏好与更新");
-    AddCard(0, 60, 426, 120, L"代理出口 (用于境外出口及海外测速)");
-    AddCard(0, 126, 426, 212, L"公网 IP 探测接口 API");
+    AddCard(0, 0, 426, 54, UiLanguage::Text(IDS_CARD_DISPLAY).c_str());
+    AddCard(0, 60, 426, 120, UiLanguage::Text(IDS_CARD_PROXY).c_str());
+    AddCard(0, 126, 426, 212, UiLanguage::Text(IDS_CARD_API).c_str());
 
     // 初始化显示格式下拉框
     m_cmbDisplayFormat.ResetContent();
-    m_cmbDisplayFormat.AddString(L"仅地区 (例如: CN 上海)");
-    m_cmbDisplayFormat.AddString(L"地区 + IP (例如: CN 上海 (1.2.3.4))");
-    m_cmbDisplayFormat.AddString(L"仅 IP (例如: 1.2.3.4)");
-    m_cmbDisplayFormat.AddString(L"地区 + 延迟 (例如: CN 上海 15ms)");
-    m_cmbDisplayFormat.AddString(L"完整信息 (例如: CN 上海 电信 (1.2.3.4))");
+    m_cmbDisplayFormat.AddString(UiLanguage::Text(IDS_FORMAT_REGION).c_str());
+    m_cmbDisplayFormat.AddString(UiLanguage::Text(IDS_FORMAT_REGION_IP).c_str());
+    m_cmbDisplayFormat.AddString(UiLanguage::Text(IDS_FORMAT_IP).c_str());
+    m_cmbDisplayFormat.AddString(UiLanguage::Text(IDS_FORMAT_REGION_LATENCY).c_str());
+    m_cmbDisplayFormat.AddString(UiLanguage::Text(IDS_FORMAT_FULL).c_str());
 
     const SettingData d = g_data.GetSettings();
     int fmt = d.display_format;
@@ -115,7 +115,7 @@ void CTabProxyApiDlg::OnBnClickedRefreshNow()
     // 2. 启动后台并发探测
     g_data.ForceUpdateAsync();
     m_btnRefresh.EnableWindow(FALSE);
-    m_stcStatus.SetWindowTextW(L"⏳ 正在并发探测各线路与测速目标…");
+    m_stcStatus.SetWindowTextW(UiLanguage::Text(IDS_REFRESH_RUNNING).c_str());
     SetTimer(1, 300, nullptr);
 }
 
@@ -125,33 +125,29 @@ void CTabProxyApiDlg::OnBnClickedTestProxy()
     m_edtProxy.GetWindowTextW(proxy);
     std::wstring proxy_str = proxy.GetString();
     m_btnTestProxy.EnableWindow(FALSE);
-    m_stcTestProxyStatus.SetWindowTextW(L"正在测试代理服务器连通性…");
+    m_stcTestProxyStatus.SetWindowTextW(UiLanguage::Text(IDS_PROXY_TESTING).c_str());
     try
     {
         m_testResult = AsyncTextResult::Start([proxy_str]() {
             std::wstring msg;
             double ms = -1.0;
             bool ok = g_data.TestProxyConnectivity(proxy_str, msg, ms);
-            wchar_t res[256]{};
-            if (ok)
-                swprintf_s(res, L"✓ 代理连接正常！握手耗时: %.0f ms", ms);
-            else
-                swprintf_s(res, L"✗ 代理连接失败: %s", msg.c_str());
-            return std::wstring(res);
+            return ok ? UiLanguage::Format(IDS_PROXY_TEST_OK, ms) :
+                UiLanguage::Format(IDS_PROXY_TEST_FAILED, msg.c_str());
         });
     }
     catch (...) { m_testResult.reset(); }
     if (!m_testResult || !SetTimer(3, 100, nullptr))
     {
         m_testResult.reset();
-        OnTestProxyDone(L"✗ 代理连接失败: 无法启动后台任务");
+        OnTestProxyDone(UiLanguage::Text(IDS_PROXY_TASK_FAILED).c_str());
     }
 }
 
 void CTabProxyApiDlg::OnTestProxyDone(const std::wstring& message)
 {
     m_stcTestProxyStatus.SetWindowTextW(message.empty()
-        ? L"✗ 代理连接失败: 后台请求失败" : message.c_str());
+        ? UiLanguage::Text(IDS_PROXY_BACKGROUND_FAILED).c_str() : message.c_str());
     m_btnTestProxy.EnableWindow(TRUE);
 }
 
@@ -188,7 +184,7 @@ void CTabProxyApiDlg::OnTimer(UINT_PTR nIDEvent)
         // 自动刷新倒计时动态可视化
         if (g_data.IsUpdating())
         {
-            m_stcStatus.SetWindowTextW(L"⏳ 正在并发探测各线路与测速目标…");
+            m_stcStatus.SetWindowTextW(UiLanguage::Text(IDS_REFRESH_RUNNING).c_str());
         }
         else
         {
@@ -196,11 +192,11 @@ void CTabProxyApiDlg::OnTimer(UINT_PTR nIDEvent)
             wchar_t tip[128];
             if (remainSec > 0)
             {
-                swprintf_s(tip, L"● 自动监控中 ｜ 下次刷新倒计时: %d 秒", remainSec);
+                swprintf_s(tip, UiLanguage::Text(IDS_REFRESH_COUNTDOWN).c_str(), remainSec);
             }
             else
             {
-                swprintf_s(tip, L"● 自动监控中 ｜ 即将触发刷新…");
+                swprintf_s(tip, UiLanguage::Text(IDS_REFRESH_SOON).c_str());
             }
             m_stcStatus.SetWindowTextW(tip);
         }
@@ -269,8 +265,8 @@ BOOL CTabLatencyDlg::OnInitDialog()
     CModernSubDlg::OnInitDialog();
 
     // 注册卡片 (DLU 坐标)
-    AddCard(0, 0, 426, 142, L"测速节点与连通性目标");
-    AddCard(0, 148, 426, 212, L"目标配置与快速测试");
+    AddCard(0, 0, 426, 142, UiLanguage::Text(IDS_CARD_TARGETS).c_str());
+    AddCard(0, 148, 426, 212, UiLanguage::Text(IDS_CARD_TARGET_EDIT).c_str());
 
     // 突出主操作按钮
     m_btnAdd.SetAccent(true);
@@ -279,10 +275,10 @@ BOOL CTabLatencyDlg::OnInitDialog()
     SetWindowTheme(m_listCtrl.m_hWnd, L"Explorer", NULL);
     m_listCtrl.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
 
-    m_listCtrl.InsertColumn(0, L"名称",     LVCFMT_LEFT, 75);
-    m_listCtrl.InsertColumn(1, L"地址/URL", LVCFMT_LEFT, 235);
-    m_listCtrl.InsertColumn(2, L"直连延迟", LVCFMT_RIGHT, 85);
-    m_listCtrl.InsertColumn(3, L"代理延迟", LVCFMT_RIGHT, 85);
+    m_listCtrl.InsertColumn(0, UiLanguage::Text(IDS_COLUMN_NAME).c_str(),     LVCFMT_LEFT, 75);
+    m_listCtrl.InsertColumn(1, UiLanguage::Text(IDS_COLUMN_URL).c_str(), LVCFMT_LEFT, 235);
+    m_listCtrl.InsertColumn(2, UiLanguage::Text(IDS_COLUMN_DIRECT).c_str(), LVCFMT_RIGHT, 85);
+    m_listCtrl.InsertColumn(3, UiLanguage::Text(IDS_COLUMN_PROXY).c_str(), LVCFMT_RIGHT, 85);
 
     m_targets = g_data.GetSettings().latency_targets;
     RefreshList();
@@ -392,7 +388,7 @@ void CTabLatencyDlg::OnBnClickedAdd()
 
     if (name.IsEmpty() || url.IsEmpty())
     {
-        AfxMessageBox(L"名称与地址不能为空！", MB_ICONWARNING);
+        AfxMessageBox(UiLanguage::Text(IDS_TARGET_REQUIRED).c_str(), MB_ICONWARNING);
         return;
     }
 
@@ -470,7 +466,7 @@ void CTabLatencyDlg::OnBnClickedTest()
     POSITION pos = m_listCtrl.GetFirstSelectedItemPosition();
     if (!pos)
     {
-        AfxMessageBox(L"请先在列表中选中一个要测速的目标项！", MB_ICONINFORMATION);
+        AfxMessageBox(UiLanguage::Text(IDS_TARGET_SELECT).c_str(), MB_ICONINFORMATION);
         return;
     }
     int idx = m_listCtrl.GetNextSelectedItem(pos);
@@ -488,16 +484,14 @@ void CTabLatencyDlg::OnBnClickedTest()
             CDataManager::MeasureLatencyMs(url, L"", true, dMs);
             if (!proxy.empty())
                 CDataManager::MeasureLatencyMs(url, proxy, false, pMs);
-            wchar_t res[256]{};
-            swprintf_s(res, L"测速完成: 直连 %.0f ms | 代理 %.0f ms", dMs, pMs);
-            return std::wstring(res);
+            return UiLanguage::Format(IDS_LATENCY_TEST_DONE, dMs, pMs);
         });
     }
     catch (...) { m_testResult.reset(); }
     if (!m_testResult || !SetTimer(3, 100, nullptr))
     {
         m_testResult.reset();
-        OnTestLatencyDone(L"无法启动后台任务");
+        OnTestLatencyDone(UiLanguage::Text(IDS_TASK_START_FAILED).c_str());
     }
 }
 
@@ -527,7 +521,7 @@ void CTabLatencyDlg::OnDestroy()
 void CTabLatencyDlg::OnTestLatencyDone(const std::wstring& message)
 {
     m_btnTest.EnableWindow(TRUE);
-    AfxMessageBox(message.empty() ? L"后台请求失败" : message.c_str(), MB_ICONINFORMATION);
+    AfxMessageBox(message.empty() ? UiLanguage::Text(IDS_BACKGROUND_FAILED).c_str() : message.c_str(), MB_ICONINFORMATION);
     RefreshList();
     AdjustColumnWidths();
 }
@@ -574,9 +568,9 @@ BOOL CTabStatusDlg::OnInitDialog()
     CModernSubDlg::OnInitDialog();
 
     // 注册卡片 (DLU 坐标)
-    AddCard(0, 0, 426, 56, L"直连网络状况");
-    AddCard(0, 62, 426, 118, L"代理出口网络状况");
-    AddCard(0, 124, 426, 212, L"完整探测诊断报告");
+    AddCard(0, 0, 426, 56, UiLanguage::Text(IDS_CARD_DIRECT).c_str());
+    AddCard(0, 62, 426, 118, UiLanguage::Text(IDS_CARD_PROXY_STATUS).c_str());
+    AddCard(0, 124, 426, 212, UiLanguage::Text(IDS_CARD_REPORT).c_str());
 
     // 突出主操作复制全部按钮
     m_btnCopyAll.SetAccent(true);
@@ -599,45 +593,45 @@ void CTabStatusDlg::UpdateStatusView()
     const auto& pThreat = snapshot.results.m_threat_proxy;
 
     // 1. 直连卡片文本
-    m_stcDirectIp.SetWindowTextW((L"公网 IP: " + (dIp.empty() ? L"-" : dIp)).c_str());
-    m_stcDirectPlace.SetWindowTextW((L"地区: " + (dPlace.empty() ? L"-" : dPlace)).c_str());
-    m_stcDirectIsp.SetWindowTextW((L"运营商: " + (dIsp.empty() ? L"-" : dIsp)).c_str());
+    m_stcDirectIp.SetWindowTextW((UiLanguage::Text(IDS_PUBLIC_IP_PREFIX).c_str() + (dIp.empty() ? L"-" : dIp)).c_str());
+    m_stcDirectPlace.SetWindowTextW((UiLanguage::Text(IDS_REGION_PREFIX).c_str() + (dPlace.empty() ? L"-" : dPlace)).c_str());
+    m_stcDirectIsp.SetWindowTextW((UiLanguage::Text(IDS_ISP_PREFIX).c_str() + (dIsp.empty() ? L"-" : dIsp)).c_str());
 
-    std::wstring dt = L"类型: ";
-    if (dThreat.is_mobile) dt += L"移动网络";
-    else if (dThreat.is_datacenter) dt += L"机房/数据中心";
-    else dt += L"普通宽带";
+    std::wstring dt = UiLanguage::Text(IDS_TYPE_PREFIX).c_str();
+    if (dThreat.is_mobile) dt += UiLanguage::Text(IDS_TYPE_MOBILE).c_str();
+    else if (dThreat.is_datacenter) dt += UiLanguage::Text(IDS_TYPE_DC_DETAIL).c_str();
+    else dt += UiLanguage::Text(IDS_TYPE_NORMAL).c_str();
 
-    dt += L" | 状态: ";
-    if (dThreat.is_abuser) dt += L"黑名单/风险";
-    else if (dThreat.is_proxy || dThreat.is_vpn || dThreat.is_tor) dt += L"代理/VPN";
-    else dt += L"纯净";
+    dt += UiLanguage::Text(IDS_STATUS_PREFIX).c_str();
+    if (dThreat.is_abuser) dt += UiLanguage::Text(IDS_STATUS_RISK).c_str();
+    else if (dThreat.is_proxy || dThreat.is_vpn || dThreat.is_tor) dt += UiLanguage::Text(IDS_STATUS_PROXY).c_str();
+    else dt += UiLanguage::Text(IDS_THREAT_CLEAN).c_str();
     m_stcDirectThreat.SetWindowTextW(dt.c_str());
 
     // 2. 代理卡片文本
     if (snapshot.settings.use_proxy)
     {
-        m_stcProxyIp.SetWindowTextW((L"出口 IP: " + (pIp.empty() ? L"-" : pIp)).c_str());
-        m_stcProxyPlace.SetWindowTextW((L"地区: " + (pPlace.empty() ? L"-" : pPlace)).c_str());
-        m_stcProxyIsp.SetWindowTextW((L"运营商: " + (pIsp.empty() ? L"-" : pIsp)).c_str());
+        m_stcProxyIp.SetWindowTextW((UiLanguage::Text(IDS_EGRESS_IP_PREFIX).c_str() + (pIp.empty() ? L"-" : pIp)).c_str());
+        m_stcProxyPlace.SetWindowTextW((UiLanguage::Text(IDS_REGION_PREFIX).c_str() + (pPlace.empty() ? L"-" : pPlace)).c_str());
+        m_stcProxyIsp.SetWindowTextW((UiLanguage::Text(IDS_ISP_PREFIX).c_str() + (pIsp.empty() ? L"-" : pIsp)).c_str());
 
-        std::wstring pt = L"类型: ";
-        if (pThreat.is_mobile) pt += L"移动网络";
-        else if (pThreat.is_datacenter) pt += L"机房/数据中心";
-        else pt += L"普通宽带";
+        std::wstring pt = UiLanguage::Text(IDS_TYPE_PREFIX).c_str();
+        if (pThreat.is_mobile) pt += UiLanguage::Text(IDS_TYPE_MOBILE).c_str();
+        else if (pThreat.is_datacenter) pt += UiLanguage::Text(IDS_TYPE_DC_DETAIL).c_str();
+        else pt += UiLanguage::Text(IDS_TYPE_NORMAL).c_str();
 
-        pt += L" | 状态: ";
-        if (pThreat.is_abuser) pt += L"黑名单/风险";
-        else if (pThreat.is_proxy || pThreat.is_vpn || pThreat.is_tor) pt += L"代理/VPN";
-        else pt += L"纯净";
+        pt += UiLanguage::Text(IDS_STATUS_PREFIX).c_str();
+        if (pThreat.is_abuser) pt += UiLanguage::Text(IDS_STATUS_RISK).c_str();
+        else if (pThreat.is_proxy || pThreat.is_vpn || pThreat.is_tor) pt += UiLanguage::Text(IDS_STATUS_PROXY).c_str();
+        else pt += UiLanguage::Text(IDS_THREAT_CLEAN).c_str();
         m_stcProxyThreat.SetWindowTextW(pt.c_str());
     }
     else
     {
-        m_stcProxyIp.SetWindowTextW(L"出口 IP: (未启用代理功能)");
-        m_stcProxyPlace.SetWindowTextW(L"地区: -");
-        m_stcProxyIsp.SetWindowTextW(L"运营商: -");
-        m_stcProxyThreat.SetWindowTextW(L"网络属性: -");
+        m_stcProxyIp.SetWindowTextW(UiLanguage::Text(IDS_PROXY_DISABLED).c_str());
+        m_stcProxyPlace.SetWindowTextW(UiLanguage::Text(IDS_REGION_EMPTY).c_str());
+        m_stcProxyIsp.SetWindowTextW(UiLanguage::Text(IDS_ISP_EMPTY).c_str());
+        m_stcProxyThreat.SetWindowTextW(UiLanguage::Text(IDS_TYPE_EMPTY).c_str());
     }
 
     // 3. 完整诊断报告展示框
@@ -676,7 +670,7 @@ void CTabStatusDlg::CopyToClipboard(const std::wstring& text)
         }
     }
     CloseClipboard();
-    AfxMessageBox(L"已成功复制到剪贴板！", MB_ICONINFORMATION);
+    AfxMessageBox(UiLanguage::Text(IDS_COPIED).c_str(), MB_ICONINFORMATION);
 }
 
 void CTabStatusDlg::OnBnClickedCopyDirect()
@@ -685,10 +679,10 @@ void CTabStatusDlg::OnBnClickedCopyDirect()
     const auto& ip = snapshot.results.m_public_ip_direct;
     if (ip.empty())
     {
-        AfxMessageBox(L"当前尚未获取到直连 IP！", MB_ICONWARNING);
+        AfxMessageBox(UiLanguage::Text(IDS_NO_DIRECT_IP).c_str(), MB_ICONWARNING);
         return;
     }
-    std::wstring s = L"直连 IP: " + ip;
+    std::wstring s = UiLanguage::Text(IDS_COPY_DIRECT_PREFIX).c_str() + ip;
     if (!snapshot.results.m_place_direct.empty())
         s += L" [" + snapshot.results.m_place_direct + L"]";
     if (!snapshot.results.m_isp_direct.empty())
@@ -702,10 +696,10 @@ void CTabStatusDlg::OnBnClickedCopyProxy()
     const auto& ip = snapshot.results.m_public_ip_proxy;
     if (ip.empty())
     {
-        AfxMessageBox(L"当前尚未获取到代理出口 IP！", MB_ICONWARNING);
+        AfxMessageBox(UiLanguage::Text(IDS_NO_PROXY_IP).c_str(), MB_ICONWARNING);
         return;
     }
-    std::wstring s = L"代理 IP: " + ip;
+    std::wstring s = UiLanguage::Text(IDS_COPY_PROXY_PREFIX).c_str() + ip;
     if (!snapshot.results.m_place_proxy.empty())
         s += L" [" + snapshot.results.m_place_proxy + L"]";
     if (!snapshot.results.m_isp_proxy.empty())
@@ -759,9 +753,9 @@ BOOL COptionsDlg::OnInitDialog()
 
     // 1. 初始化顶部现代分段胶囊栏
     m_tabBar.SubclassDlgItem(IDC_TAB_MAIN, this);
-    m_tabBar.AddTab(L"常规 / 网络");
-    m_tabBar.AddTab(L"延迟目标");
-    m_tabBar.AddTab(L"当前状态与安全");
+    m_tabBar.AddTab(UiLanguage::Text(IDS_TAB_NETWORK).c_str());
+    m_tabBar.AddTab(UiLanguage::Text(IDS_TAB_TARGETS).c_str());
+    m_tabBar.AddTab(UiLanguage::Text(IDS_TAB_STATUS).c_str());
     m_tabBar.SetOnSelChanged([this](int sel) {
         SwitchToPage(sel);
     });

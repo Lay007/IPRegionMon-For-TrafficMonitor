@@ -274,7 +274,7 @@ bool CDataManager::TestProxyConnectivity(const std::wstring& proxy, std::wstring
     out_ms = -1.0;
     if (proxy.empty())
     {
-        out_message = L"代理地址为空！";
+        out_message = UiLanguage::Text(IDS_PROXY_EMPTY).c_str();
         return false;
     }
 
@@ -287,14 +287,12 @@ bool CDataManager::TestProxyConnectivity(const std::wstring& proxy, std::wstring
 
     if (ok && out_ms >= 0)
     {
-        wchar_t buf[64]{};
-        swprintf_s(buf, L"连接成功 (延迟: %.0f ms)", out_ms);
-        out_message = buf;
+        out_message = UiLanguage::Format(IDS_PROXY_CONNECTED, out_ms);
         return true;
     }
     else
     {
-        out_message = L"连接失败：无法通过该代理访问目标网络";
+        out_message = UiLanguage::Text(IDS_PROXY_UNREACHABLE).c_str();
         return false;
     }
 }
@@ -469,7 +467,7 @@ bool CDataManager::FetchIpInfoByUrl(const std::wstring& url, bool use_proxy, con
     bool no_proxy = !use_proxy;
     if (!HttpGet(url, proxy, no_proxy, resp))
     {
-        out_place = L"请求失败（连接超时或网络未达）";
+        out_place = UiLanguage::Text(IDS_REQUEST_FAILED).c_str();
         out_ip.clear();
         out_isp.clear();
         out_threat = IpThreatInfo{};
@@ -570,13 +568,13 @@ bool CDataManager::FetchIpInfoByUrl(const std::wstring& url, bool use_proxy, con
 
     if (status == L"fail" || status == L"error")
     {
-        out_ip.clear(); out_place = message.empty() ? L"接口返回错误" : message; out_isp.clear();
+        out_ip.clear(); out_place = message.empty() ? UiLanguage::Text(IDS_API_ERROR).c_str() : message; out_isp.clear();
         return false;
     }
 
     if (ip.empty())
     {
-        out_place = L"解析失败（无效的数据格式）";
+        out_place = UiLanguage::Text(IDS_PARSE_FAILED).c_str();
         out_ip.clear();
         out_isp.clear();
         return false;
@@ -643,7 +641,7 @@ bool CDataManager::FetchIpInfoWithFallback(const std::wstring& preferredUrl, boo
     }
 
     LogInfo(L"FetchIpInfo: [%ls] All %d sources failed.", use_proxy ? L"Proxy" : L"Direct", (int)sources.size());
-    out_place = L"请求失败（连接超时或网络未达）";
+    out_place = UiLanguage::Text(IDS_REQUEST_FAILED).c_str();
     out_ip.clear();
     out_isp.clear();
     out_threat = IpThreatInfo{};
@@ -764,7 +762,7 @@ void CDataManager::UpdateIpInfoNow()
         }
         else
         {
-            l_place_direct = L"请求失败（连接超时或网络未达）";
+            l_place_direct = UiLanguage::Text(IDS_REQUEST_FAILED).c_str();
             l_public_ip_direct.clear();
             l_isp_direct.clear();
             l_threat_direct = IpThreatInfo{};
@@ -791,7 +789,7 @@ void CDataManager::UpdateIpInfoNow()
             }
             else
             {
-                l_place_proxy = L"请求失败（连接超时或网络未达）";
+                l_place_proxy = UiLanguage::Text(IDS_REQUEST_FAILED).c_str();
                 l_public_ip_proxy.clear();
                 l_isp_proxy.clear();
                 l_threat_proxy = IpThreatInfo{};
@@ -802,24 +800,24 @@ void CDataManager::UpdateIpInfoNow()
     bool any_ok = ok_direct || ok_proxy;
     // 任务栏汇总文本
     std::wstring l_ip_region_display;
-    if (!l_place_direct.empty()) { l_ip_region_display += L"直:"; l_ip_region_display += l_place_direct; }
-    else if (!l_public_ip_direct.empty()) { l_ip_region_display += L"直:"; l_ip_region_display += l_public_ip_direct; }
-    if (!l_place_proxy.empty()) { if (!l_ip_region_display.empty()) l_ip_region_display += L" | "; l_ip_region_display += L"代:"; l_ip_region_display += l_place_proxy; }
-    else if (!l_public_ip_proxy.empty()) { if (!l_ip_region_display.empty()) l_ip_region_display += L" | "; l_ip_region_display += L"代:"; l_ip_region_display += l_public_ip_proxy; }
+    if (!l_place_direct.empty()) { l_ip_region_display += UiLanguage::Text(IDS_DIRECT_LABEL).c_str(); l_ip_region_display += l_place_direct; }
+    else if (!l_public_ip_direct.empty()) { l_ip_region_display += UiLanguage::Text(IDS_DIRECT_LABEL).c_str(); l_ip_region_display += l_public_ip_direct; }
+    if (!l_place_proxy.empty()) { if (!l_ip_region_display.empty()) l_ip_region_display += L" | "; l_ip_region_display += UiLanguage::Text(IDS_PROXY_LABEL).c_str(); l_ip_region_display += l_place_proxy; }
+    else if (!l_public_ip_proxy.empty()) { if (!l_ip_region_display.empty()) l_ip_region_display += L" | "; l_ip_region_display += UiLanguage::Text(IDS_PROXY_LABEL).c_str(); l_ip_region_display += l_public_ip_proxy; }
 
     // 构造 Tooltip
     auto FormatThreatStr = [](const IpThreatInfo& t) -> std::wstring {
         std::wstring type;
-        if (t.is_datacenter) { if (!type.empty()) type += L" + "; type += L"IDC机房"; }
-        if (t.is_mobile)     { if (!type.empty()) type += L" + "; type += L"移动网络"; }
+        if (t.is_datacenter) { if (!type.empty()) type += L" + "; type += UiLanguage::Text(IDS_TYPE_DATACENTER).c_str(); }
+        if (t.is_mobile)     { if (!type.empty()) type += L" + "; type += UiLanguage::Text(IDS_TYPE_MOBILE).c_str(); }
         if (t.is_vpn)        { if (!type.empty()) type += L" + "; type += L"VPN"; }
-        if (t.is_proxy)      { if (!type.empty()) type += L" + "; type += L"代理"; }
+        if (t.is_proxy)      { if (!type.empty()) type += L" + "; type += UiLanguage::Text(IDS_TYPE_PROXY).c_str(); }
         if (t.is_tor)        { if (!type.empty()) type += L" + "; type += L"Tor"; }
-        if (type.empty()) type = L"普通宽带";
+        if (type.empty()) type = UiLanguage::Text(IDS_TYPE_NORMAL).c_str();
 
-        std::wstring status = t.is_abuser ? L"恶意/黑名单" : L"纯净";
-        if (!t.risk_score.empty()) { status += L" (欺诈分: " + t.risk_score + L")"; }
-        return L"    类型: " + type + L" | 状态: " + status + L"\n";
+        std::wstring status = t.is_abuser ? UiLanguage::Text(IDS_THREAT_ABUSER).c_str() : UiLanguage::Text(IDS_THREAT_CLEAN).c_str();
+        if (!t.risk_score.empty()) { status += UiLanguage::Text(IDS_SCORE_PREFIX).c_str() + t.risk_score + L")"; }
+        return UiLanguage::Text(IDS_TOOLTIP_TYPE_PREFIX).c_str() + type + UiLanguage::Text(IDS_STATUS_PREFIX).c_str() + status + L"\n";
     };
 
     std::wstring l_tooltip;
@@ -830,19 +828,19 @@ void CDataManager::UpdateIpInfoNow()
         
         if (!l_public_ip_direct.empty())
         {
-            l_tooltip += L"直: " + l_public_ip_direct;
+            l_tooltip += UiLanguage::Text(IDS_DIRECT_PREFIX).c_str() + l_public_ip_direct;
             if (!l_place_direct.empty()) l_tooltip += L"  [" + l_place_direct + L"]";
             if (!l_isp_direct.empty()) l_tooltip += L"  " + l_isp_direct;
             l_tooltip += L"\n" + FormatThreatStr(l_threat_direct);
         }
         if (!l_public_ip_proxy.empty())
         {
-            l_tooltip += L"代: " + l_public_ip_proxy;
+            l_tooltip += UiLanguage::Text(IDS_PROXY_PREFIX).c_str() + l_public_ip_proxy;
             if (!l_place_proxy.empty()) l_tooltip += L"  [" + l_place_proxy + L"]";
             if (!l_isp_proxy.empty()) l_tooltip += L"  " + l_isp_proxy;
             l_tooltip += L"\n" + FormatThreatStr(l_threat_proxy);
         }
-        if (!settings.use_proxy) l_tooltip += L"（未启用代理）\n";
+        if (!settings.use_proxy) l_tooltip += UiLanguage::Text(IDS_PROXY_DISABLED_NOTE).c_str();
 
         if (!l_latency.empty())
         {
@@ -852,12 +850,12 @@ void CDataManager::UpdateIpInfoNow()
                 if (it.direct_ms >= 0) ds.emplace_back(it.name, (int)(it.direct_ms + 0.5));
                 if (it.proxy_ms  >= 0) ps.emplace_back(it.name, (int)(it.proxy_ms  + 0.5));
             }
-            l_tooltip += L"延迟:\n";
-            AppendWrappedList(l_tooltip, ds, L"直: ", 3);
-            if (settings.use_proxy) AppendWrappedList(l_tooltip, ps, L"代: ", 3);
-            else l_tooltip += L"代: -\n";
+            l_tooltip += UiLanguage::Text(IDS_LATENCY_HEADING).c_str();
+            AppendWrappedList(l_tooltip, ds, UiLanguage::Text(IDS_DIRECT_PREFIX).c_str(), 3);
+            if (settings.use_proxy) AppendWrappedList(l_tooltip, ps, UiLanguage::Text(IDS_PROXY_PREFIX).c_str(), 3);
+            else l_tooltip += UiLanguage::Text(IDS_PROXY_PREFIX) + L"-\n";
         }
-        l_tooltip += L"最后更新: "; l_tooltip += tb;
+        l_tooltip += UiLanguage::Text(IDS_LAST_UPDATE_PREFIX).c_str(); l_tooltip += tb;
     }
 
     m_last_ip_update_tick = GetTickCount64();
@@ -1059,7 +1057,7 @@ std::wstring CDataManager::GetLastUpdateStatusString() const
     wchar_t tb[64]{};
     swprintf_s(tb, L"%04d-%02d-%02d %02d:%02d:%02d",
         st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
-    return L"最后更新: " + std::wstring(tb);
+    return UiLanguage::Text(IDS_LAST_UPDATE_PREFIX).c_str() + std::wstring(tb);
 }
 
 void CDataManager::SwapBuffers()

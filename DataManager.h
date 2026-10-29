@@ -76,6 +76,7 @@ class CDataManager
 {
 #ifdef IPREGIONMON_TESTING
     friend struct ConcurrencyTestAccess;
+    friend struct LocalizationTestAccess;
 #endif
     CDataManager();
     ~CDataManager() = default;

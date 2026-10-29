@@ -108,6 +108,9 @@ private:
 // ────────────────────────────────────────────────────────────────────────
 class CTabStatusDlg : public CModernSubDlg
 {
+#ifdef IPREGIONMON_TESTING
+    friend struct LocalizationTestAccess;
+#endif
     DECLARE_DYNAMIC(CTabStatusDlg)
 public:
     explicit CTabStatusDlg(CWnd* pParent = nullptr);
@@ -150,6 +153,9 @@ private:
 // ────────────────────────────────────────────────────────────────────────
 class COptionsDlg : public CDialog
 {
+#ifdef IPREGIONMON_TESTING
+    friend struct LocalizationTestAccess;
+#endif
     DECLARE_DYNAMIC(COptionsDlg)
 public:
     explicit COptionsDlg(CWnd* pParent = nullptr);

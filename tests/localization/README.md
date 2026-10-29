@@ -21,6 +21,19 @@ are created as hidden windows. Native captions and OK/Cancel texts are checked,
 along with metadata, immutable resource-pointer lifetime and unchanged thread
 UI language. OnInitialize without EI_CONFIG_DIR must not start network work.
 
+Verify-Resources.ps1 checks that both string tables contain the same nonempty
+IDs and printf arguments, and that English resources and C++ UI text have no
+untranslated Chinese. Deliberate data literals are listed explicitly: persisted
+default target names and existing provider/ISP normalization. They are not
+translated based on interface language. The width sample is checked separately.
+
+A loopback server returns Chinese geography to the real background worker. The
+tooltip must use the selected UI language while preserving that geography.
+The native-dialog check covers child captions, custom navigation/card titles,
+list columns and round-tripping user-defined Chinese target names and URLs.
+It does not change a user's clipboard, run external network requests or edit
+the installed host configuration.
+
 The production plugin uses FindResourceEx for its existing dialog and string
 resources, not SetThreadUILanguage or a new UI framework. String cache entries
 are keyed by language and resource ID and never replaced. Normal hosts select
